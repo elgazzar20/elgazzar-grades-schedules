@@ -211,7 +211,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
       ctx.fillStyle = '#FFFFFF';
       ctx.font = '900 42px Cairo, sans-serif';
-      ctx.fillText('الأستاذ / محمد الجزار', avatarX - 26, 162);
+      ctx.fillText('مستر محمد الجزار', avatarX - 26, 162);
 
       ctx.fillStyle = '#94A3B8';
       ctx.font = '700 20px Cairo, sans-serif';
@@ -353,7 +353,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       ctx.textAlign = 'right';
       ctx.fillStyle = '#67E8F9';
       ctx.font = '900 19px Cairo, sans-serif';
-      ctx.fillText('توجيه وملاحظة الأستاذ / محمد الجزار:', width - 84, noteY + 38);
+      ctx.fillText('توجيه وملاحظة مستر محمد الجزار:', width - 84, noteY + 38);
 
       ctx.fillStyle = '#F8FAFC';
       ctx.font = '800 20px Cairo, sans-serif';
@@ -365,7 +365,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       ctx.textAlign = 'right';
       ctx.fillStyle = '#67E8F9';
       ctx.font = '800 19px Cairo, sans-serif';
-      ctx.fillText('إشراف واعتماد: الأستاذ / محمد الجزار', width - 60, footerY);
+      ctx.fillText('إشراف واعتماد: مستر محمد الجزار', width - 60, footerY);
 
       ctx.textAlign = 'left';
       ctx.fillStyle = '#CBD5E1';
@@ -374,7 +374,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
-      link.download = `شهادة-${student.name}-الأستاذ-محمد-الجزار.png`;
+      link.download = `شهادة-${student.name}-مستر-محمد-الجزار.png`;
       link.href = dataUrl;
       document.body.appendChild(link);
       link.click();
@@ -459,7 +459,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               {!avatarError ? (
                 <img
                   src={TEACHER_AVATAR_URL}
-                  alt="الأستاذ محمد الجزار"
+                  alt="مستر محمد الجزار"
                   onError={() => setAvatarError(true)}
                   className="w-full h-full object-cover object-top rounded-xl"
                 />
@@ -474,7 +474,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 <span>منصة المتفوقين في الرياضيات — شهادة تقييم مستوى الطالب</span>
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                الأستاذ / محمد الجزار
+                مستر محمد الجزار
               </h2>
               <p className="text-xs sm:text-sm font-bold text-slate-300">
                 خبير تدريس مادة الرياضيات للمراحل الابتدائية والإعدادية والثانوية
@@ -664,14 +664,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
           </div>
 
-          {/* 4. توجيه وملاحظة الأستاذ محمد الجزار */}
+          {/* 4. توجيه وملاحظة مستر محمد الجزار */}
           <div
             data-testid="teacher-note"
             className="bg-gradient-to-l from-cyan-500/10 via-teal-500/5 to-slate-950/60 border border-cyan-400/25 p-4 sm:p-5 rounded-2xl space-y-1.5"
           >
             <div className="text-xs sm:text-sm font-black text-cyan-300 flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
-              <span>توجيه وملاحظة الأستاذ / محمد الجزار:</span>
+              <span>توجيه وملاحظة مستر محمد الجزار:</span>
             </div>
             <p className="text-sm sm:text-base text-white font-bold leading-relaxed">
               «{student.note || 'أتمنى لك دوام التفوق والنجاح المستمر في مادة الرياضيات.'}»
@@ -682,7 +682,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-slate-300">
             <div className="flex items-center gap-2">
               <Award className="w-4 h-4 text-cyan-400 shrink-0" />
-              <span>شهادة مستخرجة ومعتمدة من منصة الأستاذ / محمد الجزار للرياضيات</span>
+              <span>شهادة مستخرجة ومعتمدة من منصة مستر محمد الجزار للرياضيات</span>
             </div>
 
             <div className="flex items-center gap-4">
@@ -691,7 +691,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </span>
               <span className="text-slate-600">|</span>
               <span className="text-xs font-black text-white">
-                إشراف واعتماد: أ/ محمد الجزار
+                إشراف واعتماد: مستر محمد الجزار
               </span>
             </div>
           </div>
@@ -727,7 +727,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           className="w-full py-3.5 px-4 rounded-2xl bg-slate-900/85 hover:bg-slate-900 border border-emerald-400/40 hover:border-emerald-400 text-emerald-200 font-black text-sm shadow-lg flex items-center justify-center gap-2 transition-all"
         >
           <MessageCircle className="w-5 h-5 text-emerald-400 shrink-0" />
-          <span>تواصل مع أ/ محمد الجزار</span>
+          <span>تواصل مع مستر محمد الجزار</span>
         </a>
       </div>
     </motion.div>

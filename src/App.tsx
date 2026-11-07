@@ -131,6 +131,7 @@ export default function App() {
 
   // اشتراك لحظي (Real-time) عبر الشيت الخارجي للمواعيد (1m5y12DU0jgtBsShGVihBuzlk3pTVhKezIwGtTnV0x9A) لتحديث جدول المواعيد تلقائياً
   useEffect(() => {
+    document.title = 'مستر محمد الجزار';
     const unsubscribeSchedule = subscribeToRealtimeScheduleUpdates((liveSchedules) => {
       setStageSchedules(liveSchedules);
     });
@@ -267,7 +268,7 @@ export default function App() {
               {!avatarLoadError ? (
                 <img
                   src={AVATAR_IMAGE}
-                  alt="الأستاذ محمد الجزار"
+                  alt="مستر محمد الجزار"
                   onError={() => setAvatarLoadError(true)}
                   className="w-full h-full object-cover object-top rounded-lg"
                 />
@@ -277,7 +278,7 @@ export default function App() {
             </div>
             <div>
               <div className="text-sm sm:text-base font-black text-white group-hover:text-cyan-300 transition-colors">
-                الأستاذ / محمد الجزار
+                مستر محمد الجزار
               </div>
               <div className="text-[11px] font-bold text-cyan-300/85">
                 منصة الرياضيات · المرحلة الابتدائية والإعدادية والثانوية
@@ -348,13 +349,13 @@ export default function App() {
           <section className="flex flex-col sm:flex-row items-center justify-between gap-5 bg-slate-900/65 backdrop-blur-xl border border-cyan-400/25 rounded-3xl p-5 sm:p-6 shadow-2xl no-print">
             <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-right">
               <div
-                title="الأستاذ محمد الجزار"
+                title="مستر محمد الجزار"
                 className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-2 border-cyan-400 ring-4 ring-cyan-400/15 bg-slate-900 p-1 overflow-hidden shadow-xl shrink-0"
               >
                 {!avatarLoadError ? (
                   <img
                     src={AVATAR_IMAGE}
-                    alt="الأستاذ محمد الجزار"
+                    alt="مستر محمد الجزار"
                     onError={() => setAvatarLoadError(true)}
                     className="w-full h-full object-cover object-top rounded-xl"
                   />
@@ -369,7 +370,7 @@ export default function App() {
                   <span>منصة المتفوقين في الرياضيات</span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                  الأستاذ / محمد الجزار
+                  مستر محمد الجزار
                 </h1>
                 <p className="text-slate-200 text-xs sm:text-sm font-bold">
                   خبير تدريس مادة الرياضيات للمراحل الابتدائية والإعدادية والثانوية
@@ -419,15 +420,15 @@ export default function App() {
                     transition={{ duration: 0.25 }}
                     className="bg-slate-900/70 backdrop-blur-xl border border-cyan-400/30 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6"
                   >
-                    <div className="text-center sm:text-right space-y-1.5">
+                    <div className="text-center sm:text-right space-y-2">
                       <h2 className="text-lg sm:text-xl font-black text-white flex items-center justify-center sm:justify-start gap-2.5">
-                        <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-teal-500 text-slate-950 flex items-center justify-center text-sm font-black shadow-sm">
+                        <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-teal-500 text-slate-950 flex items-center justify-center text-sm font-black shadow-sm shrink-0">
                           1
                         </span>
-                        <span>اختر المرحلة الدراسية للانتقال لصفحة الاستعلام</span>
+                        <span>اختر المرحلة الدراسية للاستعلام عن الدرجات والحضور</span>
                       </h2>
-                      <p className="text-xs sm:text-sm font-bold text-slate-300">
-                        اضغط على المرحلة الدراسية الخاصة بالطالب للانتقال إلى صفحة اختيار الصف وإدخال الكود
+                      <p className="text-xs sm:text-sm font-bold text-slate-300 leading-relaxed">
+                        اضغط على المرحلة الدراسية الخاصة بالطالب للانتقال إلى صفحة اختيار الصف وإدخال الكود، لتظهر لك البيانات والدرجات والحضور والتقييمات بالتفصيل
                       </p>
                     </div>
 
@@ -850,7 +851,7 @@ export default function App() {
                     <span>القنوات والمنصات الرسمية</span>
                   </div>
                   <h2 className="text-xl sm:text-2xl font-black text-white">
-                    روابط التواصل والمحتوى — أ/ محمد الجزار
+                    روابط التواصل والمحتوى — مستر محمد الجزار
                   </h2>
                 </div>
 

@@ -1,0 +1,45 @@
+{
+  "name": "مستر محمد الجزار",
+  "short_name": "مستر محمد الجزار",
+  "description": "منصة مستر محمد الجزار التعليمية للاستعلام عن درجات وتقييمات ومواعيد طلاب الرياضيات للمراحل الابتدائية والإعدادية والثانوية.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070B19",
+  "theme_color": "#06B6D4",
+  "icons": [
+    {
+      "src": "/assets/aistudio/favicon-16x16__1__0e8e16be.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/aistudio/favicon-32x32__1__e7069e2f.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/aistudio/favicon-48x48_26f332e9.png",
+      "sizes": "48x48",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/aistudio/apple-touch-icon_5c7a366a.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/aistudio/android-chrome-192x192__1__224aa85a.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/aistudio/android-chrome-512x512_d8a696a8.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
