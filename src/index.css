@@ -44,6 +44,21 @@
   animation: float-slow 6s ease-in-out infinite;
 }
 
+@keyframes bg-slow-zoom {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.065);
+  }
+}
+
+.animate-bg-slow-zoom {
+  animation: bg-slow-zoom 18s ease-in-out infinite;
+  will-change: transform;
+}
+
 @media print {
   @page {
     size: A4 portrait;

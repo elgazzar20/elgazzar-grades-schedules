@@ -5,11 +5,9 @@ import {
   ArrowRight,
   Award,
   Barcode,
-  BookOpen,
   Calendar,
   CheckCircle2,
   Clock,
-  Compass,
   ExternalLink,
   Facebook,
   GraduationCap,
@@ -115,6 +113,68 @@ const STAGE_CARDS: {
     icon: 'secondary',
   },
 ];
+
+function renderMathStageIcon(icon: 'primary' | 'prep' | 'secondary') {
+  if (icon === 'primary') {
+    // مثلث هندسي قائم الزاوية (Set Square / Geometric Triangle)
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="w-7 h-7"
+        aria-hidden="true"
+      >
+        <path d="M4 20L20 20L4 4Z" />
+        <path d="M7.5 16.5L13.5 16.5L7.5 10.5Z" strokeWidth="1.6" />
+        <path d="M4 16H8V20" strokeWidth="1.6" />
+      </svg>
+    );
+  }
+
+  if (icon === 'prep') {
+    // برجل هندسي لرسم الدوائر والزوايا (Drafting Geometry Compass)
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="w-7 h-7"
+        aria-hidden="true"
+      >
+        <path d="M12 2V4" />
+        <circle cx="12" cy="6" r="2" />
+        <path d="M10.5 7.5L5.5 20" />
+        <path d="M13.5 7.5L18.5 20" />
+        <path d="M7.5 14.5C9.2 15.8 14.8 15.8 16.5 14.5" strokeDasharray="2 2" />
+      </svg>
+    );
+  }
+
+  // رمز باي الرياضي (Pi Symbol π)
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-7 h-7"
+      aria-hidden="true"
+    >
+      <path d="M4.5 7.5C6.5 6.5 9 6.5 19.5 6.5" />
+      <path d="M9.5 6.5C9.3 11.5 8.5 15.5 6.5 18.5" />
+      <path d="M15.2 6.5V15.5C15.2 17.4 16.2 18.5 17.8 18.5C18.8 18.5 19.5 17.9 19.8 17" />
+    </svg>
+  );
+}
 
 export default function App() {
   const [activePage, setActivePage] = useState<PageTab>('home');
@@ -238,16 +298,22 @@ export default function App() {
   return (
     <div
       dir="rtl"
-      style={{
-        backgroundImage: `url('${HERO_BG_IMAGE}'), url('${HERO_BG_EXTERNAL}')`,
-      }}
-      className="bg-cover bg-center bg-fixed min-h-screen relative text-white font-['Cairo',sans-serif] overflow-x-hidden selection:bg-cyan-400 selection:text-slate-950"
+      className="min-h-screen relative bg-slate-950 text-white font-['Cairo',sans-serif] overflow-x-hidden selection:bg-cyan-400 selection:text-slate-950"
     >
-      {/* طبقة تظليل هادئة تبرز جمال الخلفية والأقسام */}
+      {/* طبقة الصورة الخلفية مع حركة تكبيرية هادئة وناعمة تعطي حيوية للموقع */}
       <div
         aria-hidden="true"
-        className="fixed inset-0 bg-gradient-to-b from-slate-950/55 via-slate-900/40 to-slate-950/75 z-0"
-      />
+        className="fixed inset-0 z-0 overflow-hidden pointer-events-none no-print"
+      >
+        <div
+          style={{
+            backgroundImage: `url('${HERO_BG_IMAGE}'), url('${HERO_BG_EXTERNAL}')`,
+          }}
+          className="w-full h-full bg-cover bg-center animate-bg-slow-zoom"
+        />
+        {/* طبقة تظليل هادئة تبرز جمال الخلفية والأقسام */}
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/55 via-slate-900/40 to-slate-950/75" />
+      </div>
 
       {/* مؤثرات الاحتفال عند تحقيق تقدير 90% فأكثر */}
       <ConfettiOverlay active={Boolean(performanceSummary?.badge.triggerConfetti)} />
@@ -451,13 +517,7 @@ export default function App() {
                             <div
                               className={`w-13 h-13 rounded-2xl border flex items-center justify-center transition-transform group-hover:scale-105 ${stage.iconBg}`}
                             >
-                              {stage.icon === 'primary' ? (
-                                <BookOpen className="w-6 h-6" />
-                              ) : stage.icon === 'prep' ? (
-                                <Compass className="w-6 h-6" />
-                              ) : (
-                                <GraduationCap className="w-6 h-6" />
-                              )}
+                              {renderMathStageIcon(stage.icon)}
                             </div>
 
                             <span className="px-3 py-1 rounded-full text-xs font-black bg-cyan-500/15 text-cyan-200 border border-cyan-400/30 group-hover:bg-cyan-400 group-hover:text-slate-950 transition-colors">
