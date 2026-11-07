@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email == 'mo7amedrabee99@gmail.com';
+    }
+
+    function isValidStudentRecord(data) {
+      return data.keys().hasAll(['id', 'name', 'grade', 'group', 'note', 'scores', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'grade', 'group', 'note', 'scores', 'updatedAt']) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+        data.grade is string && data.grade.size() >= 1 && data.grade.size() <= 120 &&
+        data.group is string && data.group.size() <= 200 &&
+        data.note is string && data.note.size() <= 1000 &&
+        data.scores is list && data.scores.size() <= 30 &&
+        (data.scores.size() == 0 || (data.scores[0] is map && data.scores[0].title is string && data.scores[0].title.size() <= 120)) &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidPlatformConfig(data) {
+      return data.keys().hasAll(['spreadsheetId', 'spreadsheetUrl', 'updatedAt']) &&
+        data.keys().hasOnly(['spreadsheetId', 'spreadsheetUrl', 'updatedAt']) &&
+        data.spreadsheetId is string && data.spreadsheetId.size() >= 1 && data.spreadsheetId.size() <= 200 &&
+        data.spreadsheetUrl is string && data.spreadsheetUrl.size() >= 1 && data.spreadsheetUrl.size() <= 500 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidScheduleStageDoc(data) {
+      return data.keys().hasAll(['stageId', 'spreadsheetId', 'groups', 'updatedAt']) &&
+        data.keys().hasOnly(['stageId', 'spreadsheetId', 'groups', 'updatedAt']) &&
+        data.stageId is string && data.stageId.size() >= 1 && data.stageId.size() <= 64 && data.stageId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.spreadsheetId is string && data.spreadsheetId.size() >= 1 && data.spreadsheetId.size() <= 200 &&
+        data.groups is list && data.groups.size() <= 20 &&
+        (data.groups.size() == 0 || (data.groups[0] is map && data.groups[0].gradeTitle is string && data.groups[0].gradeTitle.size() <= 120)) &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    match /students/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if false;
+      allow create: if isValidId(docId) && isValidStudentRecord(incoming()) && isAdmin();
+      allow update: if isValidId(docId) && isValidStudentRecord(incoming()) && isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'grade', 'group', 'note', 'scores', 'updatedAt']) &&
+        incoming().id == existing().id;
+      allow delete: if isValidId(docId) && isAdmin();
+    }
+
+    match /config/{configId} {
+      allow get: if isValidId(configId);
+      allow list: if false;
+      allow create: if isValidId(configId) && isValidPlatformConfig(incoming()) && isAdmin();
+      allow update: if isValidId(configId) && isValidPlatformConfig(incoming()) && isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['spreadsheetId', 'spreadsheetUrl', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /schedules/{stageId} {
+      allow get: if isValidId(stageId);
+      allow list: if false;
+      allow create: if isValidId(stageId) && isValidScheduleStageDoc(incoming()) && isAdmin();
+      allow update: if isValidId(stageId) && isValidScheduleStageDoc(incoming()) && isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['spreadsheetId', 'groups', 'updatedAt']) &&
+        incoming().stageId == existing().stageId;
+      allow delete: if false;
+    }
+  }
+}

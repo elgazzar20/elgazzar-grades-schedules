@@ -1,0 +1,121 @@
+{
+  "entities": {
+    "StudentRecord": {
+      "title": "StudentRecord",
+      "description": "Real-time student evaluation record synced from Google Sheets to Firestore.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Student code identifier within the grade.",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Student full Arabic name.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "grade": {
+          "type": "string",
+          "description": "Academic grade name (e.g. الرابع الابتدائي).",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "group": {
+          "type": "string",
+          "description": "Class schedule group.",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "note": {
+          "type": "string",
+          "description": "Teacher feedback note.",
+          "minLength": 0,
+          "maxLength": 1000
+        },
+        "scores": {
+          "type": "array",
+          "description": "Bounded list of dynamic assessment score items ({ title, value })."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last sync timestamp."
+        }
+      },
+      "required": ["id", "name", "grade", "group", "note", "scores", "updatedAt"]
+    },
+    "PlatformConfig": {
+      "title": "PlatformConfig",
+      "description": "External Google Sheet connection metadata managed by the teacher.",
+      "type": "object",
+      "properties": {
+        "spreadsheetId": {
+          "type": "string",
+          "description": "Google Sheets Spreadsheet ID.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "spreadsheetUrl": {
+          "type": "string",
+          "description": "Direct Google Sheets URL.",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of last config update."
+        }
+      },
+      "required": ["spreadsheetId", "spreadsheetUrl", "updatedAt"]
+    },
+    "ScheduleStageDoc": {
+      "title": "ScheduleStageDoc",
+      "description": "Stage schedule groups synced from the external schedule Google Sheet (1m5y12DU0jgtBsShGVihBuzlk3pTVhKezIwGtTnV0x9A).",
+      "type": "object",
+      "properties": {
+        "stageId": {
+          "type": "string",
+          "description": "Academic stage identifier (primary, prep, secondary).",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "spreadsheetId": {
+          "type": "string",
+          "description": "Google Sheets Spreadsheet ID for schedules.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "groups": {
+          "type": "array",
+          "description": "Bounded list of grade schedule groups for this stage."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last sync timestamp."
+        }
+      },
+      "required": ["stageId", "spreadsheetId", "groups", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/students/{docId}": {
+      "schema": { "$ref": "#/entities/StudentRecord" },
+      "description": "Real-time student grade documents indexed by composite key or student code."
+    },
+    "/config/{configId}": {
+      "schema": { "$ref": "#/entities/PlatformConfig" },
+      "description": "Platform configuration document storing the linked external Google Sheet."
+    },
+    "/schedules/{stageId}": {
+      "schema": { "$ref": "#/entities/ScheduleStageDoc" },
+      "description": "Real-time stage schedule documents synced from the external schedule Google Sheet."
+    }
+  }
+}

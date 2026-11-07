@@ -1,0 +1,85 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Cairo', sans-serif;
+    --font-sans: 'Cairo', sans-serif;
+  }
+
+  html,
+  body {
+    font-family: 'Cairo', sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  button,
+  input,
+  select,
+  .font-display {
+    font-family: 'Cairo', sans-serif;
+  }
+
+  .font-mono-num {
+    font-family: 'Cairo', sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-14px) rotate(4deg);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 6s ease-in-out infinite;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html,
+  body {
+    background: #071124 !important;
+    background-image: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 auto !important;
+    max-width: 100% !important;
+  }
+
+  .print-certificate-frame {
+    box-shadow: none !important;
+    border: 1.5px solid rgba(34, 211, 238, 0.45) !important;
+    background: linear-gradient(160deg, #071124 0%, #0b1930 55%, #060d1b 100%) !important;
+    background-image: linear-gradient(160deg, #071124 0%, #0b1930 55%, #060d1b 100%) !important;
+    color: #ffffff !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
