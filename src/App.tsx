@@ -338,16 +338,16 @@ export default function App() {
       {/* مؤثرات الاحتفال عند تحقيق تقدير 90% فأكثر */}
       <ConfettiOverlay active={Boolean(performanceSummary?.badge.triggerConfetti)} />
 
-      {/* 1. البار العلوي الثابت (Top Navigation Bar): الرئيسية · جدول المواعيد · روابط التواصل (بدون زر تواصل مباشر) */}
-      <header className="sticky top-0 z-40 w-full bg-slate-950/70 backdrop-blur-xl border-b border-white/10 no-print">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          {/* هوية المعلم المختصرة في الهيدر */}
+      {/* 1. البار العلوي الثابت (Top Navigation Bar): صف واحد مدمج وأنيق على الهاتف والكمبيوتر */}
+      <header className="sticky top-0 z-40 w-full bg-slate-950/85 backdrop-blur-xl border-b border-white/10 no-print">
+        <div className="max-w-5xl mx-auto px-2.5 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-3">
+          {/* هوية المعلم المختصرة في الهيدر (تظهر على الشاشات المتوسطة والكبيرة لعدم تكرارها فوق البانر في الموبايل) */}
           <button
             type="button"
             onClick={handleReturnToFrontHome}
-            className="flex items-center gap-3 text-right cursor-pointer group"
+            className="hidden md:flex items-center gap-3 text-right cursor-pointer group shrink-0"
           >
-            <div className="w-11 h-11 rounded-xl border-2 border-cyan-400/70 bg-slate-900 p-0.5 overflow-hidden shadow-md group-hover:border-emerald-400 transition-colors">
+            <div className="w-10 h-10 rounded-xl border-2 border-cyan-400/70 bg-slate-900 p-0.5 overflow-hidden shadow-md group-hover:border-emerald-400 transition-colors shrink-0">
               {!avatarLoadError ? (
                 <img
                   src={AVATAR_IMAGE}
@@ -356,35 +356,35 @@ export default function App() {
                   className="w-full h-full object-cover object-top rounded-lg"
                 />
               ) : (
-                <User className="w-6 h-6 text-cyan-400 m-auto" />
+                <User className="w-5 h-5 text-cyan-400 m-auto" />
               )}
             </div>
             <div>
-              <div className="text-sm sm:text-base font-black text-white group-hover:text-cyan-300 transition-colors">
+              <div className="text-sm font-black text-white group-hover:text-cyan-300 transition-colors whitespace-nowrap">
                 مستر محمد الجزار
               </div>
-              <div className="text-[11px] font-bold text-cyan-300/85">
-                منصة الرياضيات · المرحلة الابتدائية والإعدادية والثانوية
+              <div className="text-[11px] font-bold text-cyan-300/85 whitespace-nowrap">
+                منصة الرياضيات · ابتدائي · إعدادي · ثانوي
               </div>
             </div>
           </button>
 
-          {/* روابط الصفحات الأربع في البار العلوي */}
+          {/* روابط الصفحات الأربع في البار العلوي — صف واحد متناسق بدون التفاف أو قص */}
           <nav
             aria-label="التنقل الرئيسي"
-            className="flex flex-wrap items-center gap-1.5 bg-slate-900/85 p-1.5 rounded-2xl border border-white/10"
+            className="w-full md:w-auto grid grid-cols-4 md:flex items-center gap-1 sm:gap-1.5 bg-slate-900/90 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl border border-white/10"
           >
             <button
               type="button"
               data-testid="nav-home"
               onClick={handleReturnToFrontHome}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
                 activePage === 'home'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
               }`}
             >
-              <Home className="w-4 h-4" />
+              <Home className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
               <span>الرئيسية</span>
             </button>
 
@@ -396,14 +396,14 @@ export default function App() {
                 setErrorMessage(null);
                 setActivePage('board');
               }}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
                 activePage === 'board'
                   ? 'bg-gradient-to-l from-amber-500 to-yellow-500 text-slate-950 shadow-md'
                   : 'text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-400/30'
               }`}
             >
-              <Camera className="w-4 h-4" />
-              <span>📸 سبورة الحصص</span>
+              <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span>سبورة الحصص</span>
             </button>
 
             <button
@@ -413,44 +413,46 @@ export default function App() {
                 setActivePage('schedule');
                 setSelectedScheduleStage(null);
               }}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
                 activePage === 'schedule'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
               }`}
             >
-              <Calendar className="w-4 h-4" />
-              <span>جدول المواعيد</span>
+              <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="sm:hidden">المواعيد</span>
+              <span className="hidden sm:inline">جدول المواعيد</span>
             </button>
 
             <button
               type="button"
               data-testid="nav-contact"
               onClick={() => setActivePage('contact')}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
                 activePage === 'contact'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
               }`}
             >
-              <Share2 className="w-4 h-4" />
-              <span>روابط التواصل</span>
+              <Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="sm:hidden">التواصل</span>
+              <span className="hidden sm:inline">روابط التواصل</span>
             </button>
           </nav>
         </div>
       </header>
 
       {/* المحتوى الرئيسي */}
-      <main className="relative z-10 max-w-4xl mx-auto px-4 py-8 sm:py-10 space-y-8">
+      <main className="relative z-10 max-w-4xl mx-auto px-3.5 sm:px-4 py-5 sm:py-9 space-y-6 sm:space-y-8">
         {/* بانر ترحيبي متكامل يوضح خدمات المنصة ويوجه الطالب وولي الأمر فوراً (يختفي عند فتح الشهادة لعدم تكرار الهيدر) */}
         {!(activePage === 'home' && activeStudent && performanceSummary) && (
-          <section className="bg-slate-900/70 backdrop-blur-xl border border-cyan-400/30 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-5 no-print">
+          <section className="bg-slate-900/85 backdrop-blur-xl border border-cyan-400/35 rounded-3xl p-4 sm:p-6 shadow-2xl space-y-5 no-print">
             {/* الصف العلوي: هوية مستر محمد الجزار + أزرار التثبيت والواتساب */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-5">
-              <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-right">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-5">
+              <div className="flex flex-col sm:flex-row items-center gap-3.5 sm:gap-4 text-center sm:text-right">
                 <div
                   title="مستر محمد الجزار"
-                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-2 border-cyan-400 ring-4 ring-cyan-400/15 bg-slate-900 p-1 overflow-hidden shadow-xl shrink-0"
+                  className="w-22 h-22 sm:w-26 sm:h-26 rounded-2xl border-2 border-cyan-400 ring-4 ring-cyan-400/15 bg-slate-900 p-1 overflow-hidden shadow-xl shrink-0"
                 >
                   {!avatarLoadError ? (
                     <img
@@ -464,15 +466,15 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-xs font-black">
-                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                     <span>منصة المتفوقين في الرياضيات</span>
                   </div>
                   <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                     مستر محمد الجزار
                   </h1>
-                  <p className="text-slate-200 text-xs sm:text-sm font-bold">
+                  <p className="text-slate-200 text-xs sm:text-sm font-bold leading-relaxed">
                     خبير تدريس مادة الرياضيات للمراحل الابتدائية والإعدادية والثانوية
                   </p>
                   <p className="text-cyan-300 text-xs sm:text-sm font-black pt-0.5">
@@ -481,7 +483,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* أزرار تثبيت التطبيق والتواصل السريع بتصميم متطابق ومتناسق */}
+              {/* أزرار تثبيت التطبيق والتواصل السريع بتصميم متناسق بدون خروج النص عن الإطار */}
               <div className="w-full sm:w-auto grid grid-cols-2 sm:flex sm:items-center gap-2.5 shrink-0">
                 <PWAInstallButton />
 
@@ -489,18 +491,18 @@ export default function App() {
                   href={buildGeneralWhatsAppUrl()}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="h-[54px] px-3.5 py-2 rounded-2xl bg-slate-950/80 hover:bg-slate-950 border border-emerald-400/40 hover:border-emerald-400 transition-all group flex items-center justify-center sm:justify-start gap-2.5 shrink-0"
+                  className="w-full sm:w-auto min-h-[50px] px-3 py-2 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-emerald-400/45 hover:border-emerald-400 transition-all group flex items-center justify-center sm:justify-start gap-2 shrink-0"
                 >
-                  <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 group-hover:scale-105 transition-transform shrink-0">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 group-hover:scale-105 transition-transform shrink-0">
                     <PhoneCall className="w-4 h-4" />
                   </div>
-                  <div className="text-right">
-                    <div className="text-[10px] font-bold text-emerald-300 leading-tight">
-                      واتساب واستفسارات
+                  <div className="text-right min-w-0">
+                    <div className="text-[10px] font-bold text-emerald-300 leading-tight whitespace-nowrap">
+                      واتساب المستر
                     </div>
                     <div
                       dir="ltr"
-                      className="text-xs sm:text-sm font-black text-white font-mono-num leading-tight mt-0.5"
+                      className="text-xs sm:text-sm font-black text-white font-mono-num leading-tight mt-0.5 whitespace-nowrap"
                     >
                       {TEACHER_PHONE_LOCAL}
                     </div>
@@ -509,19 +511,40 @@ export default function App() {
               </div>
             </div>
 
-            {/* يظهر في الواجهة الأمامية فقط (قبل الدخول لصفحة الاستعلام): الزران الرئيسيان + شريط خدمات المنصة */}
+            {/* يظهر في الواجهة الأمامية فقط: أزرار الخدمات الرئيسية واضحة بالكامل ومكتملة النص */}
             {activePage === 'home' && !isLookupPageOpen && (
-              <div className="pt-3.5 border-t border-white/10 space-y-3">
-                {/* الأزرار الرئيسية الثلاثة بحجم مدمج وأنيق بجانب بعضها */}
-                <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+              <div className="pt-4 border-t border-white/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs sm:text-sm font-black text-cyan-300 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span>اختر القسم المطلوب واضغط عليه:</span>
+                  </div>
+                </div>
+
+                {/* الزران الأساسيان بحجم واضح وكامل النص على الهاتف */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
                     type="button"
                     data-testid="hero-cta-grades"
                     onClick={handleGoToGradesLookup}
-                    className="py-2.5 px-2.5 sm:px-3.5 rounded-xl bg-gradient-to-l from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-black text-[11px] sm:text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all hover:scale-[1.01]"
+                    className="w-full p-3.5 sm:p-4 rounded-2xl bg-gradient-to-l from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 shadow-lg flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-[0.99] text-right"
                   >
-                    <Award className="w-4 h-4 shrink-0" />
-                    <span className="truncate">استعلام الدرجات</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-xl bg-slate-950/15 flex items-center justify-center shrink-0">
+                        <Award className="w-6 h-6 text-slate-950 stroke-[2.2]" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm sm:text-base font-black text-slate-950 leading-snug">
+                          استعلام الدرجات والحضور
+                        </div>
+                        <div className="text-[11px] font-bold text-slate-900/85 mt-0.5">
+                          ادخل كود الطالب لعرض الشهادة والدرجات
+                        </div>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-950/15 text-slate-950 text-xs font-black whitespace-nowrap shrink-0">
+                      اضغط هنا ←
+                    </span>
                   </button>
 
                   <button
@@ -532,12 +555,29 @@ export default function App() {
                       setErrorMessage(null);
                       setActivePage('board');
                     }}
-                    className="py-2.5 px-2.5 sm:px-3.5 rounded-xl bg-gradient-to-l from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-[11px] sm:text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all hover:scale-[1.01]"
+                    className="w-full p-3.5 sm:p-4 rounded-2xl bg-gradient-to-l from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-lg flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-[0.99] text-right"
                   >
-                    <Camera className="w-4 h-4 shrink-0" />
-                    <span className="truncate">سبورة الحصص</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-xl bg-slate-950/15 flex items-center justify-center shrink-0">
+                        <Camera className="w-6 h-6 text-slate-950 stroke-[2.2]" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm sm:text-base font-black text-slate-950 leading-snug">
+                          📸 سبورة الحصص والملخصات
+                        </div>
+                        <div className="text-[11px] font-bold text-slate-900/85 mt-0.5">
+                          صور شرح السبورة والواجبات لكل حصة
+                        </div>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-950/15 text-slate-950 text-xs font-black whitespace-nowrap shrink-0">
+                      اضغط هنا ←
+                    </span>
                   </button>
+                </div>
 
+                {/* الزران الإضافيان (جدول المواعيد + قنوات التواصل والملازم) بنص كامل وواضح */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     data-testid="hero-cta-schedule"
@@ -545,89 +585,48 @@ export default function App() {
                       setActivePage('schedule');
                       setSelectedScheduleStage(null);
                     }}
-                    className="py-2.5 px-2.5 sm:px-3.5 rounded-xl bg-slate-950/85 hover:bg-slate-950 text-white border border-cyan-400/40 hover:border-cyan-400 font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all hover:scale-[1.01]"
+                    className="w-full p-3 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-cyan-400/40 hover:border-cyan-400 flex items-center justify-between gap-2.5 cursor-pointer transition-all text-right"
                   >
-                    <Calendar className="w-4 h-4 text-cyan-300 shrink-0" />
-                    <span className="truncate">جدول المواعيد</span>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-cyan-500/20 border border-cyan-400/35 flex items-center justify-center text-cyan-300 shrink-0">
+                        <Calendar className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-black text-white">
+                          جدول مواعيد المجموعات
+                        </div>
+                        <div className="text-[11px] font-bold text-slate-300">
+                          مواعيد جميع الصفوف وحجز مجموعة
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-xs font-black text-cyan-300 whitespace-nowrap shrink-0">
+                      عرض ←
+                    </span>
                   </button>
-                </div>
 
-                {/* شريط خدمات المنصة بتصميم مدمج وخفيف */}
-                <div className="bg-slate-950/55 border border-white/10 rounded-xl px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-[11px] font-black text-slate-300 flex items-center gap-1.5 shrink-0">
-                    <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span>خدمات المنصة:</span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleGoToGradesLookup}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-[11px] font-bold text-slate-200 hover:text-cyan-200 flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                      <span>الدرجات والحضور</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveStudent(null);
-                        setErrorMessage(null);
-                        setActivePage('board');
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-amber-500/15 border border-amber-400/30 hover:border-amber-400/60 text-[11px] font-bold text-amber-200 hover:text-amber-100 flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <Camera className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>سبورة الحصص</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActivePage('schedule');
-                        setSelectedScheduleStage(null);
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-[11px] font-bold text-slate-200 hover:text-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>مواعيد المجموعات</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActivePage('schedule');
-                        setSelectedScheduleStage(null);
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-[11px] font-bold text-slate-200 hover:text-teal-200 flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <UserPlus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                      <span>حجز مجموعة</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setActivePage('contact')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-[11px] font-bold text-slate-200 hover:text-cyan-200 flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
-                      <span>تواصل مع المستر</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveStudent(null);
-                        setErrorMessage(null);
-                        setActivePage('board');
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-amber-500/15 border border-white/10 hover:border-amber-400/40 text-[11px] font-bold text-slate-200 hover:text-amber-200 flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>ملازم واختبارات</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActivePage('contact')}
+                    className="w-full p-3 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-emerald-400/40 hover:border-emerald-400 flex items-center justify-between gap-2.5 cursor-pointer transition-all text-right"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-400/35 flex items-center justify-center text-emerald-300 shrink-0">
+                        <MessageCircle className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-black text-white">
+                          روابط التواصل والملازم
+                        </div>
+                        <div className="text-[11px] font-bold text-slate-300">
+                          واتساب · فيسبوك · يوتيوب · العنوان
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-xs font-black text-emerald-300 whitespace-nowrap shrink-0">
+                      عرض ←
+                    </span>
+                  </button>
                 </div>
               </div>
             )}

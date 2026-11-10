@@ -192,14 +192,16 @@ export const PWAInstallButton: React.FC = () => {
         type="button"
         data-testid="pwa-install-btn"
         onClick={handleInstallClick}
-        className="h-[54px] px-3.5 py-2 rounded-2xl bg-slate-950/80 hover:bg-slate-950 border border-cyan-400/40 hover:border-cyan-400 transition-all cursor-pointer group flex items-center justify-center sm:justify-start gap-2.5 shrink-0"
+        className="w-full sm:w-auto min-h-[50px] px-3 py-2 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-cyan-400/45 hover:border-cyan-400 transition-all cursor-pointer group flex items-center justify-center sm:justify-start gap-2 shrink-0"
       >
-        <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 group-hover:scale-105 transition-transform shrink-0">
+        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 group-hover:scale-105 transition-transform shrink-0">
           <Download className="w-4 h-4" />
         </div>
-        <div className="text-right">
-          <div className="text-[10px] font-bold text-cyan-300 leading-tight">تطبيق الموبايل</div>
-          <div className="text-xs sm:text-sm font-black text-white leading-tight mt-0.5">
+        <div className="text-right min-w-0">
+          <div className="text-[10px] font-bold text-cyan-300 leading-tight whitespace-nowrap">
+            تطبيق الهاتف
+          </div>
+          <div className="text-xs sm:text-sm font-black text-white leading-tight mt-0.5 whitespace-nowrap">
             تثبيت التطبيق
           </div>
         </div>
