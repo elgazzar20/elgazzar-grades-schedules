@@ -59,6 +59,17 @@ service cloud.firestore {
         data.updatedAt is string && data.updatedAt.size() <= 64;
     }
 
+    function isValidBoardArchiveDoc(data) {
+      return data.keys().hasAll(['gradeSlug', 'grade', 'spreadsheetId', 'items', 'updatedAt']) &&
+        data.keys().hasOnly(['gradeSlug', 'grade', 'spreadsheetId', 'items', 'updatedAt']) &&
+        data.gradeSlug is string && data.gradeSlug.size() >= 1 && data.gradeSlug.size() <= 64 && data.gradeSlug.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.grade is string && data.grade.size() >= 1 && data.grade.size() <= 120 &&
+        data.spreadsheetId is string && data.spreadsheetId.size() >= 1 && data.spreadsheetId.size() <= 200 &&
+        data.items is list && data.items.size() <= 50 &&
+        (data.items.size() == 0 || (data.items[0] is map && data.items[0].lessonTitle is string && data.items[0].lessonTitle.size() <= 200)) &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
     match /students/{docId} {
       allow get: if isValidId(docId);
       allow list: if false;
@@ -85,6 +96,16 @@ service cloud.firestore {
       allow update: if isValidId(stageId) && isValidScheduleStageDoc(incoming()) && isAdmin() &&
         incoming().diff(existing()).affectedKeys().hasOnly(['spreadsheetId', 'groups', 'updatedAt']) &&
         incoming().stageId == existing().stageId;
+      allow delete: if false;
+    }
+
+    match /boards/{gradeSlug} {
+      allow get: if isValidId(gradeSlug);
+      allow list: if false;
+      allow create: if isValidId(gradeSlug) && isValidBoardArchiveDoc(incoming()) && isAdmin();
+      allow update: if isValidId(gradeSlug) && isValidBoardArchiveDoc(incoming()) && isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['grade', 'spreadsheetId', 'items', 'updatedAt']) &&
+        incoming().gradeSlug == existing().gradeSlug;
       allow delete: if false;
     }
   }

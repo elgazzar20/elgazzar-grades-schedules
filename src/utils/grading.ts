@@ -12,7 +12,9 @@ export interface ParsedScoreCard {
   max: number | null;
   percentage: number;
   isAttendanceOrPercentageOnly: boolean;
-  level: 'excellent' | 'good' | 'weak';
+  isPending?: boolean;
+  isRawValueOnly?: boolean;
+  level: 'excellent' | 'good' | 'weak' | 'pending';
   levelLabel: string;
   categoryIcon: 'algebra' | 'geometry' | 'exam' | 'homework' | 'attendance' | 'general';
 }
@@ -70,9 +72,12 @@ export const TEACHER_PHONE_INTL = '201009617278';
  * Infers the educational stage for any grade title.
  */
 export function getStageForGrade(gradeName: string): StageId {
-  if (gradeName.includes('الابتدائي')) return 'primary';
-  if (gradeName.includes('الإعدادي') || gradeName.includes('الاعدادي')) return 'prep';
-  if (gradeName.includes('الثانوي')) return 'secondary';
+  const norm = String(gradeName || '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه');
+  if (norm.includes('ابتدا')) return 'primary';
+  if (norm.includes('اعداد')) return 'prep';
+  if (norm.includes('ثانو')) return 'secondary';
   return 'prep';
 }
 
@@ -82,51 +87,81 @@ export function getStageForGrade(gradeName: string): StageId {
 export function detectCategoryIcon(title: string): ParsedScoreCard['categoryIcon'] {
   const t = title.trim();
   if (t.includes('حضور') || t.includes('غياب')) return 'attendance';
-  if (t.includes('واجب') || t.includes('مواظبة') || t.includes('نشاط')) return 'homework';
-  if (t.includes('شهر') || t.includes('شامل') || t.includes('نهائي')) return 'exam';
+  if (t.includes('واجب') || t.includes('مواظبة') || t.includes('نشاط') || t.includes('تسميع')) {
+    return 'homework';
+  }
+  if (t.includes('شهر') || t.includes('شامل') || t.includes('نهائي') || t.includes('امتحان') || t.includes('اختبار')) {
+    return 'exam';
+  }
   if (t.includes('هندسة') || t.includes('قياس') || t.includes('مثلثات')) return 'geometry';
-  if (t.includes('جبر') || t.includes('حساب') || t.includes('كسور') || t.includes('تفاضل')) return 'algebra';
+  if (t.includes('جبر') || t.includes('حساب') || t.includes('كسور') || t.includes('تفاضل')) {
+    return 'algebra';
+  }
   return 'general';
 }
 
 /**
  * Parses a single dynamic score cell & column header from Google Sheets or Mock Data.
  * Supports:
+ * - Empty / unrecorded cells ("لم يُرصد بعد") so newly added sheet columns are always visible
  * - Value formatted as "48/50" or "9.5 / 10"
  * - Column header containing max score in parentheses e.g. "امتحان الشهر (50)" with value "48"
  * - Percentage values like "95%" or "95 %" (e.g. نسبة الحضور)
+ * - Plain numbers in newly added columns without a max score (e.g. "امتحان 9 نوفمبر" -> "54")
+ * - Descriptive text values in any custom column (e.g. "ممتاز", "حاضر", "تم التسليم")
  */
 export function parseScoreItem(item: RawScoreItem): ParsedScoreCard {
   const rawStr = String(item.value ?? '').trim();
   const titleStr = String(item.title ?? '').trim();
 
-  // Extract max score from title parentheses like "امتحان الشهر (50)"
-  const titleMaxMatch = titleStr.match(/\((\d+(?:\.\d+)?)\)/);
+  // Extract max score from title parentheses like "امتحان الشهر (50)" or "امتحان من 60"
+  const titleMaxMatch =
+    titleStr.match(/\((\d+(?:\.\d+)?)\)/) ||
+    titleStr.match(/(?:من|درجة|الدرجة)\s*(\d+(?:\.\d+)?)/);
   const maxFromTitle = titleMaxMatch ? parseFloat(titleMaxMatch[1]) : null;
-  const cleanTitle = titleStr.replace(/\s*\(\d+(?:\.\d+)?\)\s*/, '').trim();
+  const cleanTitle = titleStr.replace(/\s*\(\d+(?:\.\d+)?\)\s*/, '').trim() || 'خانة إضافية';
 
   const categoryIcon = detectCategoryIcon(titleStr);
 
-  // Case 1: Percentage string like "95%" or attendance column
-  if (rawStr.includes('%') || (categoryIcon === 'attendance' && !rawStr.includes('/'))) {
-    const numMatch = rawStr.match(/(\d+(?:\.\d+)?)/);
-    const pct = numMatch ? Math.min(100, Math.max(0, Math.round(parseFloat(numMatch[1])))) : 0;
-    const { level, levelLabel } = getScoreLevel(pct);
+  // Case 0: Empty / Not yet recorded in sheet
+  if (rawStr === '' || rawStr === '-' || rawStr === '—') {
     return {
       title: titleStr,
       cleanTitle,
-      rawValue: rawStr.includes('%') ? rawStr : `${pct}%`,
+      rawValue: '—',
       earned: null,
-      max: null,
-      percentage: pct,
+      max: maxFromTitle,
+      percentage: 0,
       isAttendanceOrPercentageOnly: true,
-      level,
-      levelLabel,
+      isPending: true,
+      level: 'pending',
+      levelLabel: 'فارغ بالشيت',
       categoryIcon,
     };
   }
 
-  // Case 2: Value contains fraction "earned/max" like "48/50"
+  // Case 1: Percentage string like "95%" or attendance column
+  if (rawStr.includes('%') || (categoryIcon === 'attendance' && !rawStr.includes('/'))) {
+    const numMatch = rawStr.match(/(\d+(?:\.\d+)?)/);
+    if (numMatch) {
+      const pct = Math.min(100, Math.max(0, Math.round(parseFloat(numMatch[1]))));
+      const { level, levelLabel } = getScoreLevel(pct);
+      return {
+        title: titleStr,
+        cleanTitle,
+        rawValue: rawStr.includes('%') ? rawStr : `${pct}%`,
+        earned: null,
+        max: null,
+        percentage: pct,
+        isAttendanceOrPercentageOnly: true,
+        level,
+        levelLabel,
+        categoryIcon,
+      };
+    }
+  }
+
+  // Case 2: Value contains fraction "earned/max" like "48/50" or "16/30"
   const fractionMatch = rawStr.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
   if (fractionMatch) {
     const earned = parseFloat(fractionMatch[1]);
@@ -147,23 +182,57 @@ export function parseScoreItem(item: RawScoreItem): ParsedScoreCard {
     };
   }
 
-  // Case 3: Numeric value with explicit item.max or maxFromTitle
-  const numericMatch = rawStr.match(/(\d+(?:\.\d+)?)/);
-  const earnedVal = numericMatch ? parseFloat(numericMatch[1]) : 0;
-  const maxVal = item.max ?? maxFromTitle ?? (earnedVal <= 10 ? 10 : earnedVal <= 50 ? 50 : 100);
-  const pct = maxVal > 0 ? Math.min(100, Math.max(0, Math.round((earnedVal / maxVal) * 100))) : 0;
-  const { level, levelLabel } = getScoreLevel(pct);
+  // Case 3: Purely numeric value (e.g. "48" or "54" or "6")
+  const isStrictNumber = /^-?\d+(?:\.\d+)?$/.test(rawStr);
+  if (isStrictNumber) {
+    const earnedVal = parseFloat(rawStr);
+    const explicitMax = item.max ?? maxFromTitle;
 
+    if (explicitMax && explicitMax > 0 && earnedVal <= explicitMax) {
+      const pct = Math.min(100, Math.max(0, Math.round((earnedVal / explicitMax) * 100)));
+      const { level, levelLabel } = getScoreLevel(pct);
+      return {
+        title: titleStr,
+        cleanTitle,
+        rawValue: `${earnedVal} / ${explicitMax}`,
+        earned: earnedVal,
+        max: explicitMax,
+        percentage: pct,
+        isAttendanceOrPercentageOnly: false,
+        level,
+        levelLabel,
+        categoryIcon,
+      };
+    }
+
+    // Plain numeric score in a custom column without an explicit max score (e.g. "امتحان 9 نوفمبر" = 54)
+    return {
+      title: titleStr,
+      cleanTitle,
+      rawValue: rawStr,
+      earned: earnedVal,
+      max: null,
+      percentage: 100,
+      isAttendanceOrPercentageOnly: true,
+      isRawValueOnly: true,
+      level: 'excellent',
+      levelLabel: 'مرصود بالشيت',
+      categoryIcon,
+    };
+  }
+
+  // Case 4: Custom text / note column added in the sheet (e.g. "ممتاز", "تم التسليم", "حاضر")
   return {
     title: titleStr,
     cleanTitle,
-    rawValue: `${earnedVal} / ${maxVal}`,
-    earned: earnedVal,
-    max: maxVal,
-    percentage: pct,
-    isAttendanceOrPercentageOnly: false,
-    level,
-    levelLabel,
+    rawValue: rawStr,
+    earned: null,
+    max: null,
+    percentage: 100,
+    isAttendanceOrPercentageOnly: true,
+    isRawValueOnly: true,
+    level: 'excellent',
+    levelLabel: 'مسجل بالشيت',
     categoryIcon,
   };
 }
@@ -236,18 +305,25 @@ export function evaluateStudentScores(scores: RawScoreItem[]): StudentPerformanc
   let totalMax = 0;
 
   for (const card of parsedCards) {
-    if (!card.isAttendanceOrPercentageOnly && card.earned !== null && card.max !== null) {
+    if (
+      !card.isPending &&
+      !card.isAttendanceOrPercentageOnly &&
+      card.earned !== null &&
+      card.max !== null
+    ) {
       totalEarned += card.earned;
       totalMax += card.max;
     }
   }
 
+  const activeCards = parsedCards.filter((c) => !c.isPending);
+
   let overallPercentage = 0;
   if (totalMax > 0) {
     overallPercentage = Math.round((totalEarned / totalMax) * 100);
-  } else if (parsedCards.length > 0) {
-    const sumPct = parsedCards.reduce((acc, c) => acc + c.percentage, 0);
-    overallPercentage = Math.round(sumPct / parsedCards.length);
+  } else if (activeCards.length > 0) {
+    const sumPct = activeCards.reduce((acc, c) => acc + c.percentage, 0);
+    overallPercentage = Math.round(sumPct / activeCards.length);
   }
 
   overallPercentage = Math.min(100, Math.max(0, overallPercentage));
@@ -278,6 +354,7 @@ export function buildStudentWhatsAppUrl(params: {
  * Builds the general inquiry WhatsApp URL for floating action button.
  */
 export function buildGeneralWhatsAppUrl(): string {
-  const message = 'السلام عليكم يا مستر محمد الجزار، كنت أود الاستفسار عن مواعيد ومجموعات مادة الرياضيات...';
+  const message =
+    'السلام عليكم يا مستر محمد الجزار، كنت أود الاستفسار عن مواعيد ومجموعات مادة الرياضيات...';
   return `https://wa.me/${TEACHER_PHONE_INTL}?text=${encodeURIComponent(message)}`;
 }

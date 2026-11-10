@@ -16,6 +16,11 @@
    - Public single-document `get` is permitted so students can read stage schedules.
    - `list` is forbidden (`allow list: if false;`).
    - `create` and `update` are restricted strictly to the verified teacher admin (`isAdmin()`) with strict schema validation (`isValidScheduleStageDoc`).
+4. **BoardArchiveDoc (`/boards/{gradeSlug}`)**:
+   - `gradeSlug` must be a valid grade slug matching `isValidId(gradeSlug)`.
+   - Public single-document `get` is permitted so authenticated-by-code students can read their grade's board archive.
+   - `list` is forbidden (`allow list: if false;`).
+   - `create` and `update` are restricted strictly to the verified teacher admin (`isAdmin()`) with strict schema validation (`isValidBoardArchiveDoc`).
 
 ## 2. The "Dirty Dozen" Payloads
 1. **Shadow Field Injection on `/students/primary_401`**: `{ id: "401", name: "طالب", grade: "الرابع الابتدائي", group: "مجموعة 1", note: "", scores: [], updatedAt: "2026-11-06T00:00:00Z", isAdmin: true }` -> Rejected by `hasOnly`.

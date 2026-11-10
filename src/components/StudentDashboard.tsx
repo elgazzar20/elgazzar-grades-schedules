@@ -263,11 +263,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
       ctx.fillStyle = '#CBD5E1';
       ctx.font = '800 20px Cairo, sans-serif';
-      ctx.fillText(
-        `الصف ${student.grade}   •   كود الطالب: #${student.id}   •   ${student.group}`,
-        width - 86,
-        396
-      );
+      const studentMetaLine = [
+        `الصف ${student.grade}`,
+        `كود الطالب: #${student.id}`,
+        student.group ? student.group : '',
+      ]
+        .filter(Boolean)
+        .join('   •   ');
+      ctx.fillText(studentMetaLine, width - 86, 396);
 
       // مربع النسبة المئوية والتقدير على يسار بطاقة الطالب
       ctx.textAlign = 'center';
@@ -324,44 +327,46 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         ctx.fillText(`المستوى: ${card.levelLabel}`, x + cardWidth - 22, y + 70);
 
         ctx.textAlign = 'left';
-        ctx.fillStyle =
-          card.level === 'excellent'
+        ctx.fillStyle = card.isPending
+          ? '#94A3B8'
+          : card.level === 'excellent'
             ? '#34D399'
             : card.level === 'good'
               ? '#38BDF8'
               : '#FB7185';
-        ctx.font = '900 25px Cairo, sans-serif';
+        ctx.font = card.isPending ? '800 20px Cairo, sans-serif' : '900 25px Cairo, sans-serif';
         ctx.fillText(card.rawValue, x + 24, y + 44);
 
-        if (!card.isAttendanceOrPercentageOnly) {
+        if (!card.isAttendanceOrPercentageOnly && !card.isPending) {
           ctx.fillStyle = '#67E8F9';
           ctx.font = '800 15px Cairo, sans-serif';
           ctx.fillText(`${card.percentage}%`, x + 24, y + 72);
         }
       });
 
-      // 7. صندوق ملاحظة وتوجيه الأستاذ محمد الجزار
+      // 7. صندوق ملاحظة وتوجيه الأستاذ محمد الجزار (يُرسم فقط إذا كانت هناك ملاحظة مسجلة في الشيت)
       const noteY = 502 + rowCount * 110;
-      ctx.fillStyle = 'rgba(6, 182, 212, 0.08)';
-      ctx.strokeStyle = 'rgba(34, 211, 238, 0.30)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(56, noteY, width - 112, 108, 18);
-      ctx.fill();
-      ctx.stroke();
+      if (student.note) {
+        ctx.fillStyle = 'rgba(6, 182, 212, 0.08)';
+        ctx.strokeStyle = 'rgba(34, 211, 238, 0.30)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(56, noteY, width - 112, 108, 18);
+        ctx.fill();
+        ctx.stroke();
 
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#67E8F9';
-      ctx.font = '900 19px Cairo, sans-serif';
-      ctx.fillText('توجيه وملاحظة مستر محمد الجزار:', width - 84, noteY + 38);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#67E8F9';
+        ctx.font = '900 19px Cairo, sans-serif';
+        ctx.fillText('ملاحظات:', width - 84, noteY + 38);
 
-      ctx.fillStyle = '#F8FAFC';
-      ctx.font = '800 20px Cairo, sans-serif';
-      const noteText = `«${student.note || 'أتمنى لك دوام التفوق والنجاح المستمر في مادة الرياضيات.'}»`;
-      ctx.fillText(noteText, width - 84, noteY + 76);
+        ctx.fillStyle = '#F8FAFC';
+        ctx.font = '800 20px Cairo, sans-serif';
+        ctx.fillText(`«${student.note}»`, width - 84, noteY + 76);
+      }
 
       // 8. تذييل الشهادة النظيف
-      const footerY = noteY + 152;
+      const footerY = student.note ? noteY + 152 : noteY + 44;
       ctx.textAlign = 'right';
       ctx.fillStyle = '#67E8F9';
       ctx.font = '800 19px Cairo, sans-serif';
@@ -520,10 +525,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <span>كود الطالب: {student.id}</span>
                 </span>
 
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-slate-200 font-bold">
-                  <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>{student.group}</span>
-                </span>
+                {student.group && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-slate-200 font-bold">
+                    <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{student.group}</span>
+                  </span>
+                )}
               </div>
             </div>
 
@@ -598,15 +605,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {parsedCards.map((card, idx) => {
-                const barColor =
-                  card.level === 'excellent'
+                const barColor = card.isPending
+                  ? 'bg-slate-700'
+                  : card.level === 'excellent'
                     ? 'bg-gradient-to-r from-emerald-400 to-cyan-400'
                     : card.level === 'good'
                       ? 'bg-gradient-to-r from-cyan-400 to-sky-400'
                       : 'bg-gradient-to-r from-rose-500 to-amber-400';
 
-                const scoreTextColor =
-                  card.level === 'excellent'
+                const scoreTextColor = card.isPending
+                  ? 'text-slate-400'
+                  : card.level === 'excellent'
                     ? 'text-emerald-300'
                     : card.level === 'good'
                       ? 'text-cyan-300'
@@ -628,7 +637,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                             {card.cleanTitle}
                           </h4>
                           <span className="text-[11px] font-bold text-slate-300 inline-flex items-center gap-1 mt-0.5">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            <CheckCircle2
+                              className={`w-3 h-3 ${
+                                card.isPending ? 'text-slate-400' : 'text-emerald-400'
+                              }`}
+                            />
                             <span>المستوى: {card.levelLabel}</span>
                           </span>
                         </div>
@@ -641,7 +654,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                         >
                           {card.rawValue}
                         </div>
-                        {!card.isAttendanceOrPercentageOnly && (
+                        {!card.isAttendanceOrPercentageOnly && !card.isPending && (
                           <div
                             dir="ltr"
                             className="text-[11px] font-bold text-slate-400 font-mono-num whitespace-nowrap"
@@ -655,7 +668,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
                       <div
                         className={`h-full rounded-full ${barColor}`}
-                        style={{ width: `${card.percentage}%` }}
+                        style={{ width: `${card.isPending ? 0 : card.percentage}%` }}
                       />
                     </div>
                   </div>
@@ -664,19 +677,21 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
           </div>
 
-          {/* 4. توجيه وملاحظة مستر محمد الجزار */}
-          <div
-            data-testid="teacher-note"
-            className="bg-gradient-to-l from-cyan-500/10 via-teal-500/5 to-slate-950/60 border border-cyan-400/25 p-4 sm:p-5 rounded-2xl space-y-1.5"
-          >
-            <div className="text-xs sm:text-sm font-black text-cyan-300 flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
-              <span>توجيه وملاحظة مستر محمد الجزار:</span>
+          {/* 4. ملاحظات الشيت (تظهر فقط إن كانت مكتوبة في الشيت) */}
+          {student.note && (
+            <div
+              data-testid="teacher-note"
+              className="bg-gradient-to-l from-cyan-500/10 via-teal-500/5 to-slate-950/60 border border-cyan-400/25 p-4 sm:p-5 rounded-2xl space-y-1.5"
+            >
+              <div className="text-xs sm:text-sm font-black text-cyan-300 flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span>ملاحظات مسجلة في الشيت:</span>
+              </div>
+              <p className="text-sm sm:text-base text-white font-bold leading-relaxed">
+                «{student.note}»
+              </p>
             </div>
-            <p className="text-sm sm:text-base text-white font-bold leading-relaxed">
-              «{student.note || 'أتمنى لك دوام التفوق والنجاح المستمر في مادة الرياضيات.'}»
-            </p>
-          </div>
+          )}
 
           {/* 5. تذييل الشهادة الرسمي النظيف */}
           <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-slate-300">

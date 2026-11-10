@@ -26,6 +26,7 @@ export interface ScheduleSession {
   days: string;
   time: string;
   statusNote?: string;
+  extraFields?: Array<{ title: string; value: string }>;
 }
 
 export interface GradeScheduleGroup {
@@ -157,9 +158,154 @@ const GRADE_SLUG_MAP: Record<string, string> = {
   'الثالث الثانوي': 'g3_sec',
 };
 
+// خريطة معرفات الأوراق (GIDs) الأساسية في شيت الدرجات لضمان قراءة CSV الخام بدون فقدان أي خانة
+const KNOWN_GRADE_GIDS: Record<string, string> = {
+  'الرابع الابتدائي': '1004',
+  'الخامس الابتدائي': '1005',
+  'السادس الابتدائي': '1006',
+  'الأول الإعدادي': '0',
+  'الثاني الإعدادي': '1449564186',
+  'الثالث الإعدادي': '65358771',
+  'الأول الثانوي': '1007',
+  'الثاني الثانوي': '1008',
+  'الثالث الثانوي': '1009',
+};
+
+let cachedDiscoveredGradeGids: Record<string, string> = { ...KNOWN_GRADE_GIDS };
+let lastGradeGidDiscoveryTime = 0;
+
+/**
+ * تحويل الأرقام العربية/الفارسية إلى أرقام إنجليزية قياسية للمطابقة الدقيقة
+ */
+function normalizeDigits(input: string): string {
+  return String(input || '')
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776))
+    .trim();
+}
+
+/**
+ * توحيد النص العربي للمقارنة المرنة بين أسماء الأوراق والصفوف
+ */
+function normalizeArabicText(input: string): string {
+  return String(input || '')
+    .replace(/^الصف\s+/, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * اكتشاف كافة الأوراق (Tabs) ومعرفاتها (GIDs) داخل أي ملف Google Sheet تلقائياً
+ * حتى لو أضاف المعلم ورقة جديدة في الشيت
+ */
+export async function discoverSpreadsheetTabs(
+  spreadsheetId: string
+): Promise<Array<{ name: string; gid: string }>> {
+  try {
+    const res = await fetch(
+      `https://docs.google.com/spreadsheets/d/${spreadsheetId}/htmlview?_t=${Date.now()}`,
+      { cache: 'no-store' }
+    );
+    if (!res.ok) return [];
+    const html = await res.text();
+    const matches = [
+      ...html.matchAll(
+        /items\.push\(\{name:\s*"([^"]+)",\s*pageUrl:\s*"[^"]+",\s*gid:\s*"(\d+)"/g
+      ),
+    ];
+    return matches.map((m) => ({ name: m[1].trim(), gid: m[2].trim() }));
+  } catch {
+    return [];
+  }
+}
+
+async function resolveGradeTabGid(gradeName: string): Promise<string | null> {
+  const now = Date.now();
+  if (now - lastGradeGidDiscoveryTime > 30000) {
+    lastGradeGidDiscoveryTime = now;
+    const tabs = await discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID);
+    if (tabs.length > 0) {
+      const nextMap: Record<string, string> = { ...KNOWN_GRADE_GIDS };
+      for (const t of tabs) {
+        nextMap[t.name] = t.gid;
+      }
+      cachedDiscoveredGradeGids = nextMap;
+    }
+  }
+
+  if (cachedDiscoveredGradeGids[gradeName]) {
+    return cachedDiscoveredGradeGids[gradeName];
+  }
+
+  const targetNorm = normalizeArabicText(gradeName);
+  for (const [k, gid] of Object.entries(cachedDiscoveredGradeGids)) {
+    if (normalizeArabicText(k) === targetNorm) {
+      return gid;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * تحليل نص CSV إلى مصفوفة ثنائية الأبعاد بدون فقدان أي خلية أو عنوان عمود
+ */
+export function parseCsvToRows(csvText: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < csvText.length; i++) {
+    const ch = csvText[i];
+    const nextCh = csvText[i + 1];
+
+    if (inQuotes) {
+      if (ch === '"' && nextCh === '"') {
+        currentCell += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        currentCell += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        currentRow.push(currentCell.trim());
+        currentCell = '';
+      } else if (ch === '\r' && nextCh === '\n') {
+        currentRow.push(currentCell.trim());
+        rows.push(currentRow);
+        currentRow = [];
+        currentCell = '';
+        i++;
+      } else if (ch === '\n' || ch === '\r') {
+        currentRow.push(currentCell.trim());
+        rows.push(currentRow);
+        currentRow = [];
+        currentCell = '';
+      } else {
+        currentCell += ch;
+      }
+    }
+  }
+
+  if (currentCell.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentCell.trim());
+    rows.push(currentRow);
+  }
+
+  return rows;
+}
+
 export function getStudentFirestoreDocId(gradeName: string, studentCode: string): string {
   const gradeSlug = GRADE_SLUG_MAP[gradeName] || 'grade';
-  const safeCode = studentCode.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  const safeCode = normalizeDigits(studentCode).replace(/[^a-zA-Z0-9_-]/g, '');
   return `${gradeSlug}_${safeCode || '0'}`;
 }
 
@@ -177,9 +323,9 @@ export async function syncStudentRecordToFirestore(student: StudentRecord): Prom
   const docId = getStudentFirestoreDocId(student.grade, student.id);
   const path = `students/${docId}`;
   try {
-    const boundedScores = student.scores.slice(0, 30).map((s) => ({
+    const boundedScores = student.scores.slice(0, 50).map((s) => ({
       title: String(s.title || '').slice(0, 120),
-      value: String(s.value || '').slice(0, 120),
+      value: String(s.value ?? '').slice(0, 120),
     }));
 
     await setDoc(doc(db, 'students', docId), {
@@ -202,7 +348,24 @@ export async function syncStudentRecordToFirestore(student: StudentRecord): Prom
 }
 
 /**
- * تحويل صفوف الجدول (2D array) إلى سجل طالب مع قراءة كافة الأعمدة الإضافية (من العمود الخامس فصاعداً) تلقائياً
+ * مطابقة كود الطالب بمرونة (يدعم الأصفار البادئة مثل 077077 والأرقام العربية)
+ */
+function isMatchingStudentCode(rowCodeRaw: string, targetCodeRaw: string): boolean {
+  const cleanRow = normalizeDigits(rowCodeRaw);
+  const cleanTarget = normalizeDigits(targetCodeRaw);
+  if (!cleanRow || !cleanTarget) return false;
+  if (cleanRow === cleanTarget) return true;
+
+  // مطابقة في حال حذف الصفر البادئ تلقائياً من الشيت (مثل 077077 و 77077)
+  if (/^\d+$/.test(cleanRow) && /^\d+$/.test(cleanTarget)) {
+    return cleanRow.replace(/^0+/, '') === cleanTarget.replace(/^0+/, '');
+  }
+  return false;
+}
+
+/**
+ * تحويل صفوف الجدول (2D array) إلى سجل طالب مع قراءة كافة الأعمدة والخانات الجديدة تلقائياً
+ * مهما كان عدد الأعمدة المضافة في الشيت أو نوع البيانات بداخلها
  */
 function parseStudentFromRows(
   rows: string[][],
@@ -210,19 +373,40 @@ function parseStudentFromRows(
   studentCode: string
 ): StudentRecord | null {
   if (!rows || rows.length < 2) return null;
-  const headers = rows[0].map((h) => String(h || '').trim());
-  const targetId = studentCode.trim();
+  const headers = (rows[0] || []).map((h) => String(h || '').trim());
+
+  // معرفة آخر عمود يحتوي على عنوان أو بيانات في الشيت بالكامل
+  let maxColsInSheet = headers.length;
+  for (const r of rows) {
+    if (r && r.length > maxColsInSheet) {
+      maxColsInSheet = r.length;
+    }
+  }
+
+  // تحديد الأعمدة الفعالة في الشيت (من العمود الخامس فصاعداً) التي لها عنوان أو بها بيانات لأي طالب
+  const activeColumnIndices: number[] = [];
+  for (let c = 4; c < maxColsInSheet; c++) {
+    const hasHeader = Boolean(headers[c]);
+    const hasAnyValueInSheet = rows.slice(1).some((r) => r && String(r[c] ?? '').trim() !== '');
+    if (hasHeader || hasAnyValueInSheet) {
+      activeColumnIndices.push(c);
+    }
+  }
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.length === 0) continue;
     const rowId = String(row[0] || '').trim();
-    if (rowId === targetId) {
+    if (isMatchingStudentCode(rowId, studentCode)) {
       const scores: { title: string; value: string }[] = [];
-      for (let c = 4; c < headers.length; c++) {
-        const colTitle = headers[c];
-        const cellVal = row[c] !== undefined && row[c] !== null ? String(row[c]).trim() : '';
-        if (colTitle && cellVal !== '') {
+
+      for (const c of activeColumnIndices) {
+        const colTitle = headers[c] || `خانة إضافية (${c - 3})`;
+        const cellVal =
+          row[c] !== undefined && row[c] !== null ? String(row[c]).trim() : '';
+
+        // إذا كانت الخانة لها عنوان في الشيت أو لها قيمة مسجلة للطالب نضيفها فوراً
+        if (headers[c] || cellVal !== '') {
           scores.push({
             title: colTitle,
             value: cellVal,
@@ -231,9 +415,9 @@ function parseStudentFromRows(
       }
 
       return {
-        id: rowId,
-        name: String(row[1] || 'طالب').trim(),
-        group: String(row[2] || 'المجموعة الأساسية').trim(),
+        id: rowId || normalizeDigits(studentCode),
+        name: String(row[1] || '').trim(),
+        group: String(row[2] || '').trim(),
         note: String(row[3] || '').trim(),
         grade: gradeName,
         scores,
@@ -245,10 +429,9 @@ function parseStudentFromRows(
 }
 
 /**
- * تحليل رد Google Visualization JSONP/JSON من شيت الأستاذ محمد الجزار
- * يدعم كلاً من عناوين الأعمدة في cols.label أو في الصف الأول rows[0]
+ * تحليل رد Google Visualization JSONP/JSON مع دمج عناوين الأعمدة والصف الأول
  */
-function parseGvizResponse(text: string): string[][] {
+function parseGvizResponse(text: string, fallbackLabels: string[] = []): string[][] {
   const jsonStart = text.indexOf('{');
   const jsonEnd = text.lastIndexOf('}');
   if (jsonStart === -1 || jsonEnd === -1) {
@@ -263,8 +446,8 @@ function parseGvizResponse(text: string): string[][] {
   const table = parsed.table;
   if (!table || !Array.isArray(table.rows)) return [];
 
-  const cols: string[] = (table.cols || []).map((col: { label?: string }) =>
-    String(col?.label || '').trim()
+  const cols: string[] = (table.cols || []).map((col: { label?: string }, idx: number) =>
+    String(col?.label || fallbackLabels[idx] || '').trim()
   );
 
   const resultRows: string[][] = [];
@@ -273,9 +456,15 @@ function parseGvizResponse(text: string): string[][] {
     resultRows.push(cols);
   }
 
-  table.rows.forEach((r: { c?: Array<{ v?: unknown; f?: string } | null> }) => {
-    const cells = (r.c || []).map((cell) => {
-      if (!cell) return '';
+  table.rows.forEach((r: { c?: Array<{ v?: unknown; f?: string } | null> }, rIdx: number) => {
+    const cells = (r.c || []).map((cell, cIdx) => {
+      if (!cell) {
+        // إذا كان الصف الأول هو صف العناوين وحذفه gviz بسبب نوع العمود الرقمي، نستعيده من fallbackLabels
+        if (rIdx === 0 && !hasColumnLabels && fallbackLabels[cIdx]) {
+          return fallbackLabels[cIdx];
+        }
+        return '';
+      }
       if (cell.f !== undefined && cell.f !== null) return String(cell.f).trim();
       if (cell.v !== undefined && cell.v !== null) return String(cell.v).trim();
       return '';
@@ -284,6 +473,85 @@ function parseGvizResponse(text: string): string[][] {
   });
 
   return resultRows;
+}
+
+/**
+ * جلب كافة صفوف ورقة الصف الدراسي من شيت الدرجات بأعلى دقة (بدون فقدان أي عمود أو خانة جديدة)
+ */
+async function fetchRawGradeSheetRows(
+  spreadsheetId: string,
+  gradeName: string
+): Promise<string[][]> {
+  const timestamp = Date.now();
+
+  // 1. الطريقة الأولى والأدق: تصدير CSV الخام عبر GID الورقة (يقرأ كل النصوص والأرقام والعناوين الجديدة 100% كما هي)
+  const gid = await resolveGradeTabGid(gradeName);
+  if (gid !== null) {
+    try {
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}&_t=${timestamp}`;
+      const res = await fetch(csvUrl, { cache: 'no-store' });
+      if (res.ok) {
+        const csvText = await res.text();
+        if (!csvText.trim().startsWith('<!DOCTYPE html>')) {
+          const rows = parseCsvToRows(csvText);
+          if (rows.length > 0) return rows;
+        }
+      }
+    } catch {
+      // المتابعة إلى gviz المدمج
+    }
+  }
+
+  // 2. الطريقة الثانية: دمج gviz headers=1 (لقراءة كافة عناوين الأعمدة الجديدة) مع headers=0 (لقراءة كافة الصفوف)
+  try {
+    const [resHeaders, resRows] = await Promise.all([
+      fetch(
+        `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
+          gradeName
+        )}&headers=1&_t=${timestamp}`,
+        { cache: 'no-store' }
+      ),
+      fetch(
+        `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(
+          gradeName
+        )}&headers=0&_t=${timestamp}`,
+        { cache: 'no-store' }
+      ),
+    ]);
+
+    let headerLabels: string[] = [];
+    if (resHeaders.ok) {
+      const textH = await resHeaders.text();
+      const jsonStart = textH.indexOf('{');
+      const jsonEnd = textH.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        const parsedH = JSON.parse(textH.substring(jsonStart, jsonEnd + 1));
+        headerLabels = (parsedH?.table?.cols || []).map((c: { label?: string }) =>
+          String(c?.label || '').trim()
+        );
+      }
+    }
+
+    if (resRows.ok) {
+      const textR = await resRows.text();
+      const rows = parseGvizResponse(textR, headerLabels);
+      if (rows.length > 0) {
+        // التأكد من دمج أي عنوان عمود من headerLabels في الصف الأول
+        if (headerLabels.length > 0 && rows[0]) {
+          for (let c = 0; c < Math.max(headerLabels.length, rows[0].length); c++) {
+            if (!rows[0][c] && headerLabels[c]) {
+              rows[0][c] = headerLabels[c];
+            }
+          }
+        }
+        return rows;
+      }
+    }
+  } catch {
+    // المتابعة إلى Google Sheets API v4
+  }
+
+  return [];
 }
 
 /**
@@ -296,30 +564,25 @@ export async function fetchLiveStudentFromGoogleSheets(
 ): Promise<{ handled: boolean; student: StudentRecord | null }> {
   const spreadsheetId = DEFAULT_SPREADSHEET_ID;
 
-  // 1. القراءة الفورية المباشرة من شيت جوجل الخارجي (تعمل لكل الطلاب على أي دومين لحظياً)
+  // 1. القراءة الفورية المباشرة (CSV + GVIZ المدمج)
   try {
-    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(gradeName)}&headers=0&_t=${Date.now()}`;
-    const res = await fetch(gvizUrl, { cache: 'no-store' });
-    if (res.ok) {
-      const text = await res.text();
-      const rows = parseGvizResponse(text);
-      if (rows.length > 0) {
-        const student = parseStudentFromRows(rows, gradeName, studentCode);
-        if (student) {
-          await syncStudentRecordToFirestore(student);
-        }
-        return { handled: true, student };
+    const rows = await fetchRawGradeSheetRows(spreadsheetId, gradeName);
+    if (rows.length > 0) {
+      const student = parseStudentFromRows(rows, gradeName, studentCode);
+      if (student) {
+        await syncStudentRecordToFirestore(student);
       }
+      return { handled: true, student };
     }
   } catch {
-    // في حال تعذر الاتصال بـ gviz يجرب API v4 أو Firestore
+    // في حال تعذر الاتصال يجرب API v4 أو Firestore
   }
 
   // 2. القراءة عبر Google Sheets API v4 في حال وجود توكن مفعل
   const token = await getAccessToken();
   if (token) {
     try {
-      const range = encodeURIComponent(`'${gradeName}'!A1:Z500`);
+      const range = encodeURIComponent(`'${gradeName}'!A1:ZZ1000`);
       const res = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
         {
@@ -351,9 +614,9 @@ export async function fetchLiveStudentFromGoogleSheets(
         handled: true,
         student: {
           id: String(data.id ?? studentCode.trim()),
-          name: String(data.name ?? 'طالب'),
+          name: String(data.name ?? ''),
           grade: String(data.grade ?? gradeName),
-          group: String(data.group ?? 'المجموعة الأساسية'),
+          group: String(data.group ?? ''),
           note: String(data.note ?? ''),
           scores: Array.isArray(data.scores) ? data.scores : [],
         },
@@ -373,9 +636,6 @@ export async function fetchLiveStudentFromGoogleSheets(
 
 /**
  * اشتراك لحظي (Real-time Subscription) لتحديث الشهادة تلقائياً بدون ريفرش
- * يجمع بين:
- * 1. مستمع Firebase Firestore الفوري (onSnapshot)
- * 2. متابعة حية للشيت الخارجي (`1zwgiuQzBFJ7WpRvfp88KaE5z-3me9tx0MB6i4WYDaiQ`) كل 4 ثوانٍ
  */
 export function subscribeToRealtimeStudentUpdates(
   gradeName: string,
@@ -392,9 +652,9 @@ export function subscribeToRealtimeStudentUpdates(
         const data = snapshot.data();
         onUpdate({
           id: String(data.id ?? studentCode.trim()),
-          name: String(data.name ?? 'طالب'),
+          name: String(data.name ?? ''),
           grade: String(data.grade ?? gradeName),
-          group: String(data.group ?? 'المجموعة الأساسية'),
+          group: String(data.group ?? ''),
           note: String(data.note ?? ''),
           scores: Array.isArray(data.scores) ? data.scores : [],
         });
@@ -405,7 +665,7 @@ export function subscribeToRealtimeStudentUpdates(
     }
   );
 
-  const intervalId = window.setInterval(async () => {
+  const pollNow = async () => {
     try {
       const res = await fetchLiveStudentFromGoogleSheets(gradeName, studentCode);
       if (res.handled && res.student) {
@@ -414,11 +674,18 @@ export function subscribeToRealtimeStudentUpdates(
     } catch {
       // ignore transient network errors
     }
-  }, 4000);
+  };
+
+  const intervalId = window.setInterval(pollNow, 2500);
+  const handleFocus = () => {
+    pollNow();
+  };
+  window.addEventListener('focus', handleFocus);
 
   return () => {
     unsubscribeFirestore();
     window.clearInterval(intervalId);
+    window.removeEventListener('focus', handleFocus);
   };
 }
 
@@ -426,13 +693,7 @@ export function subscribeToRealtimeStudentUpdates(
  * تحديد المرحلة الدراسية تلقائياً من عمود المرحلة أو عمود الصف في شيت المواعيد
  */
 function resolveScheduleStageId(stageText: string, gradeText: string): StageId | null {
-  const normalize = (s: string) =>
-    s
-      .replace(/[أإآ]/g, 'ا')
-      .replace(/ة/g, 'ه')
-      .trim();
-
-  const combined = `${normalize(stageText)} ${normalize(gradeText)}`;
+  const combined = `${normalizeArabicText(stageText)} ${normalizeArabicText(gradeText)}`;
   if (combined.includes('ابتدا')) return 'primary';
   if (combined.includes('اعداد')) return 'prep';
   if (combined.includes('ثانو')) return 'secondary';
@@ -441,12 +702,13 @@ function resolveScheduleStageId(stageText: string, gradeText: string): StageId |
 
 /**
  * تحليل صفوف شيت المواعيد (`1m5y12DU0jgtBsShGVihBuzlk3pTVhKezIwGtTnV0x9A`)
- * وتحويلها إلى جدول منسق لكل مرحلة وصف دراسي
+ * مع قراءة أي خانات أو أعمدة إضافية جديدة يضيفها المعلم في الشيت تلقائياً
  */
 export function parseSchedulesFromRows(rows: string[][]): StageSchedulesMap | null {
   if (!rows || rows.length === 0) return null;
 
-  const firstRowJoined = rows[0].map((c) => String(c || '').trim()).join(' ');
+  const headers = (rows[0] || []).map((c) => String(c || '').trim());
+  const firstRowJoined = headers.join(' ');
   const hasHeaderRow =
     firstRowJoined.includes('المرحلة') ||
     firstRowJoined.includes('الصف') ||
@@ -493,7 +755,6 @@ export function parseSchedulesFromRows(rows: string[][]): StageSchedulesMap | nu
       ? rawGradeTitle
       : `الصف ${rawGradeTitle}`;
 
-    // تحديد الأيام والساعة بذكاء سواء عدّل المعلم عمود الأيام/الساعة أو عمود الموعد الكامل
     let finalDays = daysRaw;
     let finalTime = timeRaw;
     const combinedDE = `${daysRaw} ${timeRaw}`.trim();
@@ -512,7 +773,6 @@ export function parseSchedulesFromRows(rows: string[][]): StageSchedulesMap | nu
       INITIAL_COMBINED_SCHEDULE_STRINGS.has(combinedDE) &&
       !INITIAL_COMBINED_SCHEDULE_STRINGS.has(fullTextRaw)
     ) {
-      // في حال قام المعلم بتعديل عمود "الموعد الكامل (للعرض في الموقع)" مباشرةً
       const hourIndex = fullTextRaw.indexOf('الساعة');
       if (hourIndex > 0) {
         finalDays = fullTextRaw.slice(0, hourIndex).trim();
@@ -525,12 +785,18 @@ export function parseSchedulesFromRows(rows: string[][]): StageSchedulesMap | nu
 
     if (!finalDays && !finalTime) continue;
 
-    // تجميع أي ملاحظات إضافية من العمود السابع فصاعداً
+    // تجميع أي خانات أو أعمدة إضافية جديدة من العمود السابع فصاعداً مع اسم الخانة إن وجد
     const extraNotes: string[] = [];
+    const extraFields: Array<{ title: string; value: string }> = [];
     if (statusNoteRaw) extraNotes.push(statusNoteRaw);
-    for (let c = 7; c < row.length; c++) {
+    const maxCols = Math.max(headers.length, row.length);
+    for (let c = 7; c < maxCols; c++) {
       const extraCell = String(row[c] || '').trim();
-      if (extraCell) extraNotes.push(extraCell);
+      if (extraCell) {
+        const colHeader = hasHeaderRow && headers[c] ? headers[c] : `خانة إضافية (${c - 6})`;
+        extraFields.push({ title: colHeader, value: extraCell });
+        extraNotes.push(colHeader ? `${colHeader}: ${extraCell}` : extraCell);
+      }
     }
 
     const stageGroups = result[detectedStage];
@@ -544,10 +810,11 @@ export function parseSchedulesFromRows(rows: string[][]): StageSchedulesMap | nu
     }
 
     gradeGroup.sessions.push({
-      groupLabel: groupLabelRaw || `المجموعة ${gradeGroup.sessions.length + 1}`,
+      groupLabel: groupLabelRaw,
       days: finalDays || fullTextRaw,
       time: finalTime,
-      statusNote: extraNotes.join(' · ') || undefined,
+      statusNote: statusNoteRaw || undefined,
+      extraFields: extraFields.length > 0 ? extraFields : undefined,
     });
 
     parsedCount++;
@@ -567,13 +834,13 @@ export async function syncSchedulesToFirestore(schedules: StageSchedulesMap): Pr
   for (const stageId of stages) {
     const path = `schedules/${stageId}`;
     try {
-      const boundedGroups = (schedules[stageId] || []).slice(0, 20).map((g) => ({
+      const boundedGroups = (schedules[stageId] || []).slice(0, 30).map((g) => ({
         gradeTitle: String(g.gradeTitle || '').slice(0, 120),
-        sessions: (g.sessions || []).slice(0, 20).map((s) => ({
+        sessions: (g.sessions || []).slice(0, 30).map((s) => ({
           groupLabel: String(s.groupLabel || '').slice(0, 120),
           days: String(s.days || '').slice(0, 160),
           time: String(s.time || '').slice(0, 120),
-          statusNote: String(s.statusNote || '').slice(0, 200),
+          statusNote: String(s.statusNote || '').slice(0, 300),
         })),
       }));
 
@@ -596,13 +863,34 @@ export async function syncSchedulesToFirestore(schedules: StageSchedulesMap): Pr
 
 /**
  * جلب جدول المواعيد الحي مباشرةً من الشيت الخارجي (`1m5y12DU0jgtBsShGVihBuzlk3pTVhKezIwGtTnV0x9A`)
+ * عبر CSV الخام أولاً لضمان قراءة أي عمود أو خانة جديدة فوراً
  */
 export async function fetchLiveSchedulesFromGoogleSheets(): Promise<StageSchedulesMap | null> {
   const spreadsheetId = DEFAULT_SCHEDULE_SPREADSHEET_ID;
+  const timestamp = Date.now();
 
-  // 1. القراءة الفورية المباشرة عبر Google Visualization endpoint
+  // 1. القراءة عبر تصدير CSV الخام (يقرأ كافة الخانات والأعمدة الجديدة بدون حذف أي نص أو رقم)
   try {
-    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=0&_t=${Date.now()}`;
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=0&_t=${timestamp}`;
+    const res = await fetch(csvUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const csvText = await res.text();
+      if (!csvText.trim().startsWith('<!DOCTYPE html>')) {
+        const rows = parseCsvToRows(csvText);
+        const parsed = parseSchedulesFromRows(rows);
+        if (parsed) {
+          await syncSchedulesToFirestore(parsed);
+          return parsed;
+        }
+      }
+    }
+  } catch {
+    // المتابعة إلى gviz
+  }
+
+  // 2. القراءة عبر Google Visualization endpoint كبديل
+  try {
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=0&_t=${timestamp}`;
     const res = await fetch(gvizUrl, { cache: 'no-store' });
     if (res.ok) {
       const text = await res.text();
@@ -614,15 +902,15 @@ export async function fetchLiveSchedulesFromGoogleSheets(): Promise<StageSchedul
       }
     }
   } catch {
-    // في حال تعذر الاتصال بـ gviz يجرب API v4 أو Firestore
+    // المتابعة إلى API v4 أو Firestore
   }
 
-  // 2. القراءة عبر Google Sheets API v4 في حال وجود توكن مفعل
+  // 3. القراءة عبر Google Sheets API v4 في حال وجود توكن مفعل
   const token = await getAccessToken();
   if (token) {
     try {
       const res = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:Z200`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A1:ZZ500`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -641,7 +929,7 @@ export async function fetchLiveSchedulesFromGoogleSheets(): Promise<StageSchedul
     }
   }
 
-  // 3. القراءة من Firebase Firestore في حال انقطاع اتصال جوجل شيت المؤقت
+  // 4. القراءة من Firebase Firestore في حال انقطاع اتصال جوجل شيت المؤقت
   try {
     const stages: StageId[] = ['primary', 'prep', 'secondary'];
     const fromFirestore: StageSchedulesMap = {
@@ -679,7 +967,6 @@ export async function fetchLiveSchedulesFromGoogleSheets(): Promise<StageSchedul
 
 /**
  * اشتراك لحظي (Real-time Subscription) لجدول المواعيد
- * يقرأ مباشرةً من الشيت الخارجي (`1m5y12DU0jgtBsShGVihBuzlk3pTVhKezIwGtTnV0x9A`) ويحدّث المواعيد تلقائياً فور أي تعديل
  */
 export function subscribeToRealtimeScheduleUpdates(
   onUpdate: (schedules: StageSchedulesMap) => void
@@ -697,15 +984,16 @@ export function subscribeToRealtimeScheduleUpdates(
     }
   };
 
-  // جلب فوري عند فتح الموقع
   pollSheet();
-
-  // متابعة دورية كل 4 ثوانٍ لأي تعديل في شيت المواعيد
-  const intervalId = window.setInterval(pollSheet, 4000);
+  const intervalId = window.setInterval(pollSheet, 2500);
+  const handleFocus = () => {
+    pollSheet();
+  };
+  window.addEventListener('focus', handleFocus);
 
   return () => {
     isMounted = false;
     window.clearInterval(intervalId);
+    window.removeEventListener('focus', handleFocus);
   };
 }
-

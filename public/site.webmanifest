@@ -1,13 +1,17 @@
 {
-  "name": "مستر محمد الجزار",
-  "short_name": "مستر محمد الجزار",
+  "id": "/",
+  "name": "مستر محمد الجزار - منصة الرياضيات",
+  "short_name": "محمد الجزار",
   "description": "منصة مستر محمد الجزار التعليمية للاستعلام عن درجات وتقييمات ومواعيد طلاب الرياضيات للمراحل الابتدائية والإعدادية والثانوية.",
   "lang": "ar",
   "dir": "rtl",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#070B19",
-  "theme_color": "#06B6D4",
+  "theme_color": "#070B19",
+  "categories": ["education"],
   "icons": [
     {
       "src": "/assets/aistudio/favicon-16x16__1__0e8e16be.png",
@@ -33,13 +37,25 @@
       "src": "/assets/aistudio/android-chrome-192x192__1__224aa85a.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/aistudio/android-chrome-192x192__1__224aa85a.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/assets/aistudio/android-chrome-512x512_d8a696a8.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/aistudio/android-chrome-512x512_d8a696a8.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

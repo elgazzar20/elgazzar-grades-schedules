@@ -6,10 +6,12 @@ import {
   Award,
   Barcode,
   Calendar,
+  Camera,
   CheckCircle2,
   Clock,
   ExternalLink,
   Facebook,
+  FileText,
   GraduationCap,
   Home,
   Instagram,
@@ -23,12 +25,12 @@ import {
   Share2,
   Sparkles,
   User,
+  UserPlus,
   Video,
   Youtube,
 } from 'lucide-react';
 import {
   ALL_DEFAULT_GRADES,
-  MOCK_DATABASE,
   StudentRecord,
 } from './data/mockDatabase';
 import {
@@ -41,10 +43,14 @@ import {
 } from './utils/grading';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
 import { StudentDashboard } from './components/StudentDashboard';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { ClassroomBoardArchive } from './components/ClassroomBoardArchive';
 import {
+  DEFAULT_SPREADSHEET_ID,
   DEFAULT_STAGE_SCHEDULES,
   GradeScheduleGroup,
   StageSchedulesMap,
+  discoverSpreadsheetTabs,
   fetchLiveStudentFromGoogleSheets,
   subscribeToRealtimeScheduleUpdates,
   subscribeToRealtimeStudentUpdates,
@@ -54,7 +60,7 @@ const HERO_BG_IMAGE = '/10010.png';
 const HERO_BG_EXTERNAL = 'https://i.postimg.cc/wTdZfHFJ/10010.png';
 const AVATAR_IMAGE = '/assets/aistudio/Picsart_26-09-19_10-18-54-766_95668d91.jpg';
 
-type PageTab = 'home' | 'schedule' | 'contact';
+type PageTab = 'home' | 'board' | 'schedule' | 'contact';
 
 function formatStageScheduleSummary(groups: GradeScheduleGroup[]): string {
   const totalSessions = groups.reduce((acc, g) => acc + g.sessions.length, 0);
@@ -178,7 +184,7 @@ function renderMathStageIcon(icon: 'primary' | 'prep' | 'secondary') {
 
 export default function App() {
   const [activePage, setActivePage] = useState<PageTab>('home');
-  const [availableGrades] = useState<string[]>(ALL_DEFAULT_GRADES);
+  const [availableGrades, setAvailableGrades] = useState<string[]>(ALL_DEFAULT_GRADES);
   const [selectedStage, setSelectedStage] = useState<StageId | null>(null);
   const [selectedScheduleStage, setSelectedScheduleStage] = useState<StageId | null>(null);
   const [stageSchedules, setStageSchedules] = useState<StageSchedulesMap>(DEFAULT_STAGE_SCHEDULES);
@@ -188,10 +194,34 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeStudent, setActiveStudent] = useState<StudentRecord | null>(null);
   const [avatarLoadError, setAvatarLoadError] = useState<boolean>(false);
+  const [isLookupPageOpen, setIsLookupPageOpen] = useState<boolean>(false);
 
-  // اشتراك لحظي (Real-time) عبر الشيت الخارجي للمواعيد (1m5y12DU0jgtBsShGVihBuzlk3pTVhKezIwGtTnV0x9A) لتحديث جدول المواعيد تلقائياً
+  const handleGoToGradesLookup = () => {
+    setActivePage('home');
+    setIsLookupPageOpen(true);
+    setSelectedStage(null);
+    setSelectedGrade('');
+    setStudentIdInput('');
+    setErrorMessage(null);
+    setActiveStudent(null);
+  };
+
+  // اشتراك لحظي (Real-time) عبر الشيت الخارجي للمواعيد والدرجات لتحديث جدول المواعيد والصفوف تلقائياً
   useEffect(() => {
     document.title = 'مستر محمد الجزار';
+    discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID).then((tabs) => {
+      if (tabs.length > 0) {
+        setAvailableGrades((prev) => {
+          const merged = [...prev];
+          for (const t of tabs) {
+            if (t.name && !merged.includes(t.name)) {
+              merged.push(t.name);
+            }
+          }
+          return merged;
+        });
+      }
+    });
     const unsubscribeSchedule = subscribeToRealtimeScheduleUpdates((liveSchedules) => {
       setStageSchedules(liveSchedules);
     });
@@ -238,6 +268,12 @@ export default function App() {
     setActiveStudent(null);
   };
 
+  const handleReturnToFrontHome = () => {
+    setActivePage('home');
+    setIsLookupPageOpen(false);
+    handleBackToStages();
+  };
+
   const executeStudentLookup = async (gradeToSearch: string, codeToSearch: string) => {
     const cleanId = codeToSearch.trim();
     if (!gradeToSearch) {
@@ -253,33 +289,17 @@ export default function App() {
     setErrorMessage(null);
 
     try {
-      // 1. محاولة القراءة الحية المباشرة من Google Sheets (سواء عبر API أو رابط الشيت العام أو Apps Script)
+      // القراءة الحية المباشرة من شيت الدرجات الرسمي فقط (بدون أي بيانات وهمية)
       const liveResult = await fetchLiveStudentFromGoogleSheets(gradeToSearch, cleanId);
-      if (liveResult.handled) {
-        if (liveResult.student) {
-          setActiveStudent(liveResult.student);
-          setErrorMessage(null);
-        } else {
-          setActiveStudent(null);
-          setErrorMessage(`الكود الآتي (${cleanId}) غير مسجل`);
-        }
-        setIsLoading(false);
-        return;
-      }
-
-      // 2. البيانات الافتراضية المدمجة في حال عدم ربط شيت خارجي بعد
-      const gradeRecords = MOCK_DATABASE[gradeToSearch] || [];
-      const found = gradeRecords.find((item) => item.id === cleanId);
-
-      if (found) {
-        setActiveStudent(found);
+      if (liveResult.student) {
+        setActiveStudent(liveResult.student);
         setErrorMessage(null);
       } else {
-        setErrorMessage(`الكود الآتي (${cleanId}) غير مسجل`);
         setActiveStudent(null);
+        setErrorMessage(`الكود الآتي (${cleanId}) غير مسجل في شيت الصف ${gradeToSearch}`);
       }
     } catch {
-      setErrorMessage('حدث خطأ أثناء جلب النتيجة. يرجى المحاولة مرة أخرى.');
+      setErrorMessage('حدث خطأ أثناء جلب النتيجة من الشيت. يرجى المحاولة مرة أخرى.');
     } finally {
       setIsLoading(false);
     }
@@ -324,10 +344,7 @@ export default function App() {
           {/* هوية المعلم المختصرة في الهيدر */}
           <button
             type="button"
-            onClick={() => {
-              setActivePage('home');
-              handleBackToStages();
-            }}
+            onClick={handleReturnToFrontHome}
             className="flex items-center gap-3 text-right cursor-pointer group"
           >
             <div className="w-11 h-11 rounded-xl border-2 border-cyan-400/70 bg-slate-900 p-0.5 overflow-hidden shadow-md group-hover:border-emerald-400 transition-colors">
@@ -352,19 +369,16 @@ export default function App() {
             </div>
           </button>
 
-          {/* روابط الصفحات الثلاث في البار العلوي */}
+          {/* روابط الصفحات الأربع في البار العلوي */}
           <nav
             aria-label="التنقل الرئيسي"
-            className="flex items-center gap-1.5 bg-slate-900/85 p-1.5 rounded-2xl border border-white/10"
+            className="flex flex-wrap items-center gap-1.5 bg-slate-900/85 p-1.5 rounded-2xl border border-white/10"
           >
             <button
               type="button"
               data-testid="nav-home"
-              onClick={() => {
-                setActivePage('home');
-                handleBackToStages();
-              }}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 transition-all cursor-pointer ${
+              onClick={handleReturnToFrontHome}
+              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer ${
                 activePage === 'home'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
@@ -376,12 +390,30 @@ export default function App() {
 
             <button
               type="button"
+              data-testid="nav-board"
+              onClick={() => {
+                setActiveStudent(null);
+                setErrorMessage(null);
+                setActivePage('board');
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                activePage === 'board'
+                  ? 'bg-gradient-to-l from-amber-500 to-yellow-500 text-slate-950 shadow-md'
+                  : 'text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-400/30'
+              }`}
+            >
+              <Camera className="w-4 h-4" />
+              <span>📸 سبورة الحصص</span>
+            </button>
+
+            <button
+              type="button"
               data-testid="nav-schedule"
               onClick={() => {
                 setActivePage('schedule');
                 setSelectedScheduleStage(null);
               }}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer ${
                 activePage === 'schedule'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
@@ -395,7 +427,7 @@ export default function App() {
               type="button"
               data-testid="nav-contact"
               onClick={() => setActivePage('contact')}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 transition-all cursor-pointer ${
                 activePage === 'contact'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
@@ -410,65 +442,203 @@ export default function App() {
 
       {/* المحتوى الرئيسي */}
       <main className="relative z-10 max-w-4xl mx-auto px-4 py-8 sm:py-10 space-y-8">
-        {/* بانر ترحيبي مفتوح وأنيق يجمع صورة الأستاذ محمد الجزار وعنوان المنصة (يختفي عند فتح الشهادة لعدم تكرار الهيدر) */}
+        {/* بانر ترحيبي متكامل يوضح خدمات المنصة ويوجه الطالب وولي الأمر فوراً (يختفي عند فتح الشهادة لعدم تكرار الهيدر) */}
         {!(activePage === 'home' && activeStudent && performanceSummary) && (
-          <section className="flex flex-col sm:flex-row items-center justify-between gap-5 bg-slate-900/65 backdrop-blur-xl border border-cyan-400/25 rounded-3xl p-5 sm:p-6 shadow-2xl no-print">
-            <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-right">
-              <div
-                title="مستر محمد الجزار"
-                className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-2 border-cyan-400 ring-4 ring-cyan-400/15 bg-slate-900 p-1 overflow-hidden shadow-xl shrink-0"
-              >
-                {!avatarLoadError ? (
-                  <img
-                    src={AVATAR_IMAGE}
-                    alt="مستر محمد الجزار"
-                    onError={() => setAvatarLoadError(true)}
-                    className="w-full h-full object-cover object-top rounded-xl"
-                  />
-                ) : (
-                  <User className="w-12 h-12 text-cyan-400 m-auto" />
-                )}
+          <section className="bg-slate-900/70 backdrop-blur-xl border border-cyan-400/30 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-5 no-print">
+            {/* الصف العلوي: هوية مستر محمد الجزار + أزرار التثبيت والواتساب */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-5">
+              <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-right">
+                <div
+                  title="مستر محمد الجزار"
+                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-2 border-cyan-400 ring-4 ring-cyan-400/15 bg-slate-900 p-1 overflow-hidden shadow-xl shrink-0"
+                >
+                  {!avatarLoadError ? (
+                    <img
+                      src={AVATAR_IMAGE}
+                      alt="مستر محمد الجزار"
+                      onError={() => setAvatarLoadError(true)}
+                      className="w-full h-full object-cover object-top rounded-xl"
+                    />
+                  ) : (
+                    <User className="w-12 h-12 text-cyan-400 m-auto" />
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-xs font-black">
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>منصة المتفوقين في الرياضيات</span>
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                    مستر محمد الجزار
+                  </h1>
+                  <p className="text-slate-200 text-xs sm:text-sm font-bold">
+                    خبير تدريس مادة الرياضيات للمراحل الابتدائية والإعدادية والثانوية
+                  </p>
+                  <p className="text-cyan-300 text-xs sm:text-sm font-black pt-0.5">
+                    «تابع مستوى ابنك، حضوره، ودرجاته في مكان واحد.»
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-xs font-black">
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>منصة المتفوقين في الرياضيات</span>
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                  مستر محمد الجزار
-                </h1>
-                <p className="text-slate-200 text-xs sm:text-sm font-bold">
-                  خبير تدريس مادة الرياضيات للمراحل الابتدائية والإعدادية والثانوية
-                </p>
+              {/* أزرار تثبيت التطبيق والتواصل السريع بتصميم متطابق ومتناسق */}
+              <div className="w-full sm:w-auto grid grid-cols-2 sm:flex sm:items-center gap-2.5 shrink-0">
+                <PWAInstallButton />
+
+                <a
+                  href={buildGeneralWhatsAppUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="h-[54px] px-3.5 py-2 rounded-2xl bg-slate-950/80 hover:bg-slate-950 border border-emerald-400/40 hover:border-emerald-400 transition-all group flex items-center justify-center sm:justify-start gap-2.5 shrink-0"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 group-hover:scale-105 transition-transform shrink-0">
+                    <PhoneCall className="w-4 h-4" />
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] font-bold text-emerald-300 leading-tight">
+                      واتساب واستفسارات
+                    </div>
+                    <div
+                      dir="ltr"
+                      className="text-xs sm:text-sm font-black text-white font-mono-num leading-tight mt-0.5"
+                    >
+                      {TEACHER_PHONE_LOCAL}
+                    </div>
+                  </div>
+                </a>
               </div>
             </div>
 
-            {/* بطاقة رقم التواصل السريع داخل الهيدر الترحيبي */}
-            <a
-              href={buildGeneralWhatsAppUrl()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full sm:w-auto flex items-center justify-center gap-3 px-5 py-3.5 rounded-2xl bg-slate-950/75 hover:bg-slate-950 border border-emerald-400/35 hover:border-emerald-400 transition-all group"
-            >
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 group-hover:scale-105 transition-transform">
-                <PhoneCall className="w-5 h-5" />
-              </div>
-              <div className="text-right">
-                <div className="text-[11px] font-bold text-emerald-300">واتساب واستفسارات</div>
-                <div dir="ltr" className="text-sm sm:text-base font-black text-white font-mono-num">
-                  {TEACHER_PHONE_LOCAL}
+            {/* يظهر في الواجهة الأمامية فقط (قبل الدخول لصفحة الاستعلام): الزران الرئيسيان + شريط خدمات المنصة */}
+            {activePage === 'home' && !isLookupPageOpen && (
+              <div className="pt-3.5 border-t border-white/10 space-y-3">
+                {/* الأزرار الرئيسية الثلاثة بحجم مدمج وأنيق بجانب بعضها */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                  <button
+                    type="button"
+                    data-testid="hero-cta-grades"
+                    onClick={handleGoToGradesLookup}
+                    className="py-2.5 px-2.5 sm:px-3.5 rounded-xl bg-gradient-to-l from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-black text-[11px] sm:text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all hover:scale-[1.01]"
+                  >
+                    <Award className="w-4 h-4 shrink-0" />
+                    <span className="truncate">استعلام الدرجات</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="hero-cta-boards"
+                    onClick={() => {
+                      setActiveStudent(null);
+                      setErrorMessage(null);
+                      setActivePage('board');
+                    }}
+                    className="py-2.5 px-2.5 sm:px-3.5 rounded-xl bg-gradient-to-l from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-[11px] sm:text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition-all hover:scale-[1.01]"
+                  >
+                    <Camera className="w-4 h-4 shrink-0" />
+                    <span className="truncate">سبورة الحصص</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="hero-cta-schedule"
+                    onClick={() => {
+                      setActivePage('schedule');
+                      setSelectedScheduleStage(null);
+                    }}
+                    className="py-2.5 px-2.5 sm:px-3.5 rounded-xl bg-slate-950/85 hover:bg-slate-950 text-white border border-cyan-400/40 hover:border-cyan-400 font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all hover:scale-[1.01]"
+                  >
+                    <Calendar className="w-4 h-4 text-cyan-300 shrink-0" />
+                    <span className="truncate">جدول المواعيد</span>
+                  </button>
+                </div>
+
+                {/* شريط خدمات المنصة بتصميم مدمج وخفيف */}
+                <div className="bg-slate-950/55 border border-white/10 rounded-xl px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[11px] font-black text-slate-300 flex items-center gap-1.5 shrink-0">
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span>خدمات المنصة:</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleGoToGradesLookup}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-[11px] font-bold text-slate-200 hover:text-cyan-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span>الدرجات والحضور</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveStudent(null);
+                        setErrorMessage(null);
+                        setActivePage('board');
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-amber-500/15 border border-amber-400/30 hover:border-amber-400/60 text-[11px] font-bold text-amber-200 hover:text-amber-100 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>سبورة الحصص</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActivePage('schedule');
+                        setSelectedScheduleStage(null);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-[11px] font-bold text-slate-200 hover:text-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>مواعيد المجموعات</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActivePage('schedule');
+                        setSelectedScheduleStage(null);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-[11px] font-bold text-slate-200 hover:text-teal-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <UserPlus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                      <span>حجز مجموعة</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActivePage('contact')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-[11px] font-bold text-slate-200 hover:text-cyan-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                      <span>تواصل مع المستر</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveStudent(null);
+                        setErrorMessage(null);
+                        setActivePage('board');
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900/85 hover:bg-amber-500/15 border border-white/10 hover:border-amber-400/40 text-[11px] font-bold text-slate-200 hover:text-amber-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>ملازم واختبارات</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </a>
+            )}
           </section>
         )}
 
         {/* التبديل بين الصفحات الثلاث (الرئيسية · جدول المواعيد · روابط التواصل) */}
         <AnimatePresence mode="wait">
-          {activePage === 'home' && (
+          {activePage === 'home' && isLookupPageOpen && (
             <motion.div
-              key="page-home"
+              key="page-home-lookup"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
@@ -476,7 +646,7 @@ export default function App() {
               className="space-y-6"
             >
               <AnimatePresence mode="wait">
-                {/* 1. صفحة اختيار المرحلة الدراسية (تظهر فقط عند عدم اختيار مرحلة بعد) */}
+                {/* 1. صفحة اختيار المرحلة الدراسية (تظهر فقط بعد الضغط على زر "استعلام عن الحضور والدرجات") */}
                 {!selectedStage ? (
                   <motion.section
                     key="view-select-stage"
@@ -486,6 +656,21 @@ export default function App() {
                     transition={{ duration: 0.25 }}
                     className="bg-slate-900/70 backdrop-blur-xl border border-cyan-400/30 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6"
                   >
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
+                      <button
+                        type="button"
+                        onClick={handleReturnToFrontHome}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-white/15 text-cyan-300 text-xs sm:text-sm font-black transition-all cursor-pointer"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                        <span>العودة للرئيسية</span>
+                      </button>
+
+                      <span className="px-3.5 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-400/35 text-cyan-300 text-xs font-black">
+                        استعلام عن الحضور والدرجات
+                      </span>
+                    </div>
+
                     <div className="text-center sm:text-right space-y-2">
                       <h2 className="text-lg sm:text-xl font-black text-white flex items-center justify-center sm:justify-start gap-2.5">
                         <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-teal-500 text-slate-950 flex items-center justify-center text-sm font-black shadow-sm shrink-0">
@@ -694,7 +879,32 @@ export default function App() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -14 }}
                     transition={{ duration: 0.25 }}
+                    className="space-y-4"
                   >
+                    {/* اختصار سريع لفتح سبورة الحصص الخاصة بصف الطالب مباشرة */}
+                    <div className="no-print flex items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900/85 border border-amber-400/40 shadow-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+                          <Camera className="w-5 h-5" />
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs sm:text-sm font-black text-white">
+                            📸 سبورة الحصص والملخصات — الصف {activeStudent.grade}
+                          </div>
+                          <div className="text-[11px] font-bold text-amber-300/90">
+                            تصفح صور سبورات الحصص والواجبات الخاصة بصفك الآن
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActivePage('board')}
+                        className="px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 text-xs font-black shrink-0 cursor-pointer shadow-md"
+                      >
+                        فتح سبورة الحصص ←
+                      </button>
+                    </div>
+
                     <StudentDashboard
                       key="student-result"
                       student={activeStudent}
@@ -707,6 +917,31 @@ export default function App() {
                   </motion.div>
                 )}
               </AnimatePresence>
+            </motion.div>
+          )}
+
+          {/* صفحة سبورة الحصص والملخصات (مربوطة لحظياً بالشيت ومحمية بكود الطالب) */}
+          {activePage === 'board' && (
+            <motion.div
+              key="page-board"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              data-testid="board-page"
+              className="space-y-6 text-right"
+            >
+              <ClassroomBoardArchive
+                activeStudent={activeStudent}
+                availableGrades={availableGrades}
+                isLoadingStudent={isLoading}
+                errorMessage={errorMessage}
+                onLookupStudent={executeStudentLookup}
+                onSwitchStudent={() => {
+                  setActiveStudent(null);
+                  setErrorMessage(null);
+                }}
+              />
             </motion.div>
           )}
 
@@ -858,14 +1093,25 @@ export default function App() {
                                   </span>
                                   <div>
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <span className="text-xs font-bold text-slate-300">
-                                        {session.groupLabel}
-                                      </span>
+                                      {session.groupLabel && (
+                                        <span className="text-xs font-bold text-slate-300">
+                                          {session.groupLabel}
+                                        </span>
+                                      )}
                                       {session.statusNote && (
                                         <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-[11px] font-black">
                                           {session.statusNote}
                                         </span>
                                       )}
+                                      {session.extraFields &&
+                                        session.extraFields.map((field, fIdx) => (
+                                          <span
+                                            key={fIdx}
+                                            className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[11px] font-black"
+                                          >
+                                            {field.title ? `${field.title}: ${field.value}` : field.value}
+                                          </span>
+                                        ))}
                                     </div>
                                     <div className="text-sm sm:text-base font-black text-white flex items-center gap-2 mt-1">
                                       <Calendar className="w-4 h-4 text-cyan-400 shrink-0" />

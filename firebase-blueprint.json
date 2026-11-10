@@ -102,6 +102,42 @@
         }
       },
       "required": ["stageId", "spreadsheetId", "groups", "updatedAt"]
+    },
+    "BoardArchiveDoc": {
+      "title": "BoardArchiveDoc",
+      "description": "Classroom board archive items for a specific academic grade synced from Google Sheets (1z8_TKEB9UjxieAdv0htzC6x0YioxeK4SSDM7PkjgSCo).",
+      "type": "object",
+      "properties": {
+        "gradeSlug": {
+          "type": "string",
+          "description": "Grade slug identifier (e.g. g4_primary, g1_prep).",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "grade": {
+          "type": "string",
+          "description": "Arabic grade name.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "spreadsheetId": {
+          "type": "string",
+          "description": "Google Sheets Spreadsheet ID for classroom boards.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "items": {
+          "type": "array",
+          "description": "Bounded list of classroom board items for this grade."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last sync timestamp."
+        }
+      },
+      "required": ["gradeSlug", "grade", "spreadsheetId", "items", "updatedAt"]
     }
   },
   "firestore": {
@@ -116,6 +152,10 @@
     "/schedules/{stageId}": {
       "schema": { "$ref": "#/entities/ScheduleStageDoc" },
       "description": "Real-time stage schedule documents synced from the external schedule Google Sheet."
+    },
+    "/boards/{gradeSlug}": {
+      "schema": { "$ref": "#/entities/BoardArchiveDoc" },
+      "description": "Real-time classroom board archive documents per grade synced from the external board Google Sheet."
     }
   }
 }
