@@ -55,22 +55,30 @@ const KNOWN_BOARD_TAB_GIDS: Array<{ name: string; gid: string }> = [
 
 let cachedBoardTabs: Array<{ name: string; gid: string }> = [...KNOWN_BOARD_TAB_GIDS];
 let lastBoardTabsDiscoveryTime = 0;
+let isDiscoveringBoardTabs = false;
 
 async function getBoardTabsToRead(): Promise<Array<{ name: string; gid: string }>> {
   const now = Date.now();
-  if (now - lastBoardTabsDiscoveryTime > 30000) {
+  if (!isDiscoveringBoardTabs && now - lastBoardTabsDiscoveryTime > 120000) {
+    isDiscoveringBoardTabs = true;
     lastBoardTabsDiscoveryTime = now;
-    const discovered = await discoverSpreadsheetTabs(DEFAULT_BOARD_SPREADSHEET_ID);
-    if (discovered.length > 0) {
-      const map = new Map<string, { name: string; gid: string }>();
-      for (const t of KNOWN_BOARD_TAB_GIDS) {
-        map.set(t.gid, t);
-      }
-      for (const d of discovered) {
-        map.set(d.gid, d);
-      }
-      cachedBoardTabs = Array.from(map.values());
-    }
+    discoverSpreadsheetTabs(DEFAULT_BOARD_SPREADSHEET_ID)
+      .then((discovered) => {
+        if (discovered.length > 0) {
+          const map = new Map<string, { name: string; gid: string }>();
+          for (const t of KNOWN_BOARD_TAB_GIDS) {
+            map.set(t.gid, t);
+          }
+          for (const d of discovered) {
+            map.set(d.gid, d);
+          }
+          cachedBoardTabs = Array.from(map.values());
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        isDiscoveringBoardTabs = false;
+      });
   }
   return cachedBoardTabs;
 }

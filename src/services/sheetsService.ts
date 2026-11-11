@@ -222,17 +222,37 @@ export async function discoverSpreadsheetTabs(
   }
 }
 
+let isDiscoveringGradeTabs = false;
+
 async function resolveGradeTabGid(gradeName: string): Promise<string | null> {
+  // 1. إذا كان الصف موجوداً في القائمة المعروفة نعيده فوراً بدون انتظار
+  if (cachedDiscoveredGradeGids[gradeName]) {
+    return cachedDiscoveredGradeGids[gradeName];
+  }
+
+  const targetNorm = normalizeArabicText(gradeName);
+  for (const [k, gid] of Object.entries(cachedDiscoveredGradeGids)) {
+    if (normalizeArabicText(k) === targetNorm) {
+      return gid;
+    }
+  }
+
+  // 2. إذا كان صفاً جديداً تمت إضافته في الشيت، نكتشف الأوراق
   const now = Date.now();
-  if (now - lastGradeGidDiscoveryTime > 30000) {
+  if (!isDiscoveringGradeTabs && now - lastGradeGidDiscoveryTime > 60000) {
+    isDiscoveringGradeTabs = true;
     lastGradeGidDiscoveryTime = now;
-    const tabs = await discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID);
-    if (tabs.length > 0) {
-      const nextMap: Record<string, string> = { ...KNOWN_GRADE_GIDS };
-      for (const t of tabs) {
-        nextMap[t.name] = t.gid;
+    try {
+      const tabs = await discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID);
+      if (tabs.length > 0) {
+        const nextMap: Record<string, string> = { ...KNOWN_GRADE_GIDS };
+        for (const t of tabs) {
+          nextMap[t.name] = t.gid;
+        }
+        cachedDiscoveredGradeGids = nextMap;
       }
-      cachedDiscoveredGradeGids = nextMap;
+    } finally {
+      isDiscoveringGradeTabs = false;
     }
   }
 
@@ -240,7 +260,6 @@ async function resolveGradeTabGid(gradeName: string): Promise<string | null> {
     return cachedDiscoveredGradeGids[gradeName];
   }
 
-  const targetNorm = normalizeArabicText(gradeName);
   for (const [k, gid] of Object.entries(cachedDiscoveredGradeGids)) {
     if (normalizeArabicText(k) === targetNorm) {
       return gid;
@@ -560,7 +579,8 @@ async function fetchRawGradeSheetRows(
  */
 export async function fetchLiveStudentFromGoogleSheets(
   gradeName: string,
-  studentCode: string
+  studentCode: string,
+  shouldSyncFirestore = true
 ): Promise<{ handled: boolean; student: StudentRecord | null }> {
   const spreadsheetId = DEFAULT_SPREADSHEET_ID;
 
@@ -569,8 +589,8 @@ export async function fetchLiveStudentFromGoogleSheets(
     const rows = await fetchRawGradeSheetRows(spreadsheetId, gradeName);
     if (rows.length > 0) {
       const student = parseStudentFromRows(rows, gradeName, studentCode);
-      if (student) {
-        await syncStudentRecordToFirestore(student);
+      if (student && shouldSyncFirestore) {
+        syncStudentRecordToFirestore(student).catch(() => {});
       }
       return { handled: true, student };
     }
@@ -593,8 +613,8 @@ export async function fetchLiveStudentFromGoogleSheets(
         const data = await res.json();
         const values: string[][] = Array.isArray(data.values) ? data.values : [];
         const student = parseStudentFromRows(values, gradeName, studentCode);
-        if (student) {
-          await syncStudentRecordToFirestore(student);
+        if (student && shouldSyncFirestore) {
+          syncStudentRecordToFirestore(student).catch(() => {});
         }
         return { handled: true, student };
       }
@@ -636,18 +656,22 @@ export async function fetchLiveStudentFromGoogleSheets(
 
 /**
  * اشتراك لحظي (Real-time Subscription) لتحديث الشهادة تلقائياً بدون ريفرش
+ * مع حماية كاملة لمنع إعادة الطالب السابق عند الضغط على "بحث عن طالب آخر"
  */
 export function subscribeToRealtimeStudentUpdates(
   gradeName: string,
   studentCode: string,
   onUpdate: (updatedStudent: StudentRecord) => void
 ): () => void {
+  let isActive = true;
+  let isPolling = false;
   const docId = getStudentFirestoreDocId(gradeName, studentCode);
   const path = `students/${docId}`;
 
   const unsubscribeFirestore = onSnapshot(
     doc(db, 'students', docId),
     (snapshot) => {
+      if (!isActive) return;
       if (snapshot.exists()) {
         const data = snapshot.data();
         onUpdate({
@@ -666,23 +690,28 @@ export function subscribeToRealtimeStudentUpdates(
   );
 
   const pollNow = async () => {
+    if (!isActive || isPolling) return;
+    isPolling = true;
     try {
-      const res = await fetchLiveStudentFromGoogleSheets(gradeName, studentCode);
-      if (res.handled && res.student) {
+      const res = await fetchLiveStudentFromGoogleSheets(gradeName, studentCode, false);
+      if (isActive && res.handled && res.student) {
         onUpdate(res.student);
       }
     } catch {
       // ignore transient network errors
+    } finally {
+      isPolling = false;
     }
   };
 
-  const intervalId = window.setInterval(pollNow, 2500);
+  const intervalId = window.setInterval(pollNow, 8000);
   const handleFocus = () => {
-    pollNow();
+    if (isActive) pollNow();
   };
   window.addEventListener('focus', handleFocus);
 
   return () => {
+    isActive = false;
     unsubscribeFirestore();
     window.clearInterval(intervalId);
     window.removeEventListener('focus', handleFocus);
@@ -972,22 +1001,32 @@ export function subscribeToRealtimeScheduleUpdates(
   onUpdate: (schedules: StageSchedulesMap) => void
 ): () => void {
   let isMounted = true;
+  let isPolling = false;
+  let lastSerialized = '';
 
   const pollSheet = async () => {
+    if (!isMounted || isPolling) return;
+    isPolling = true;
     try {
       const liveSchedules = await fetchLiveSchedulesFromGoogleSheets();
       if (isMounted && liveSchedules) {
-        onUpdate(liveSchedules);
+        const serialized = JSON.stringify(liveSchedules);
+        if (serialized !== lastSerialized) {
+          lastSerialized = serialized;
+          onUpdate(liveSchedules);
+        }
       }
     } catch {
       // ignore transient network errors
+    } finally {
+      isPolling = false;
     }
   };
 
   pollSheet();
-  const intervalId = window.setInterval(pollSheet, 2500);
+  const intervalId = window.setInterval(pollSheet, 10000);
   const handleFocus = () => {
-    pollSheet();
+    if (isMounted) pollSheet();
   };
   window.addEventListener('focus', handleFocus);
 

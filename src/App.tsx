@@ -196,14 +196,25 @@ export default function App() {
   const [avatarLoadError, setAvatarLoadError] = useState<boolean>(false);
   const [isLookupPageOpen, setIsLookupPageOpen] = useState<boolean>(false);
 
+  // مراجع متزامنة لمنع أي تحديث خلفي قديم من إعادة الطالب السابق بعد الضغط على "بحث عن طالب آخر"
+  const activeStudentKeyRef = React.useRef<string | null>(null);
+  const lookupSessionIdRef = React.useRef<number>(0);
+
+  const clearCurrentStudentSelection = () => {
+    lookupSessionIdRef.current += 1;
+    activeStudentKeyRef.current = null;
+    setActiveStudent(null);
+    setStudentIdInput('');
+    setErrorMessage(null);
+    setIsLoading(false);
+  };
+
   const handleGoToGradesLookup = () => {
+    clearCurrentStudentSelection();
     setActivePage('home');
     setIsLookupPageOpen(true);
     setSelectedStage(null);
     setSelectedGrade('');
-    setStudentIdInput('');
-    setErrorMessage(null);
-    setActiveStudent(null);
   };
 
   // اشتراك لحظي (Real-time) عبر الشيت الخارجي للمواعيد والدرجات لتحديث جدول المواعيد والصفوف تلقائياً
@@ -228,14 +239,36 @@ export default function App() {
     return () => unsubscribeSchedule();
   }, []);
 
-  // اشتراك لحظي (Real-time) عبر Firebase Firestore والشيت الخارجي لتحديث الشهادة تلقائياً فور تعديل الشيت
+  // اشتراك لحظي (Real-time) لتحديث الشهادة تلقائياً فور تعديل الشيت مع منع عودة الطالب السابق عند عمل بحث جديد
   useEffect(() => {
-    if (!activeStudent) return;
+    if (!activeStudent) {
+      activeStudentKeyRef.current = null;
+      return;
+    }
+
+    const expectedKey = `${activeStudent.grade}__${activeStudent.id}`;
+    activeStudentKeyRef.current = expectedKey;
+    const sessionAtStart = lookupSessionIdRef.current;
+
     const unsubscribe = subscribeToRealtimeStudentUpdates(
       activeStudent.grade,
       activeStudent.id,
       (updatedRecord) => {
-        setActiveStudent(updatedRecord);
+        if (
+          lookupSessionIdRef.current !== sessionAtStart ||
+          activeStudentKeyRef.current !== expectedKey
+        ) {
+          return;
+        }
+        setActiveStudent((prev) => {
+          if (!prev || prev.id !== updatedRecord.id || prev.grade !== updatedRecord.grade) {
+            return prev;
+          }
+          if (JSON.stringify(prev) === JSON.stringify(updatedRecord)) {
+            return prev;
+          }
+          return updatedRecord;
+        });
       }
     );
     return () => unsubscribe();
@@ -250,10 +283,8 @@ export default function App() {
   }, [availableGrades, selectedStage]);
 
   const handleStageSelect = (stageId: StageId) => {
+    clearCurrentStudentSelection();
     setSelectedStage(stageId);
-    setErrorMessage(null);
-    setActiveStudent(null);
-    setStudentIdInput('');
     const stageGrades = availableGrades.filter((g) => getStageForGrade(g) === stageId);
     if (stageGrades.length > 0) {
       setSelectedGrade(stageGrades[0]);
@@ -261,11 +292,9 @@ export default function App() {
   };
 
   const handleBackToStages = () => {
+    clearCurrentStudentSelection();
     setSelectedStage(null);
     setSelectedGrade('');
-    setStudentIdInput('');
-    setErrorMessage(null);
-    setActiveStudent(null);
   };
 
   const handleReturnToFrontHome = () => {
@@ -285,23 +314,33 @@ export default function App() {
       return;
     }
 
+    const currentSession = lookupSessionIdRef.current + 1;
+    lookupSessionIdRef.current = currentSession;
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
       // القراءة الحية المباشرة من شيت الدرجات الرسمي فقط (بدون أي بيانات وهمية)
       const liveResult = await fetchLiveStudentFromGoogleSheets(gradeToSearch, cleanId);
+      if (lookupSessionIdRef.current !== currentSession) return;
+
       if (liveResult.student) {
+        activeStudentKeyRef.current = `${liveResult.student.grade}__${liveResult.student.id}`;
         setActiveStudent(liveResult.student);
         setErrorMessage(null);
       } else {
+        activeStudentKeyRef.current = null;
         setActiveStudent(null);
         setErrorMessage(`الكود الآتي (${cleanId}) غير مسجل في شيت الصف ${gradeToSearch}`);
       }
     } catch {
-      setErrorMessage('حدث خطأ أثناء جلب النتيجة من الشيت. يرجى المحاولة مرة أخرى.');
+      if (lookupSessionIdRef.current === currentSession) {
+        setErrorMessage('حدث خطأ أثناء جلب النتيجة من الشيت. يرجى المحاولة مرة أخرى.');
+      }
     } finally {
-      setIsLoading(false);
+      if (lookupSessionIdRef.current === currentSession) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -369,16 +408,16 @@ export default function App() {
             </div>
           </button>
 
-          {/* روابط الصفحات الأربع في البار العلوي — صف واحد متناسق بدون التفاف أو قص */}
+          {/* روابط الصفحات الأربع في البار العلوي — صف واحد متناسق يتسع الكلمات كاملة داخل كل زر */}
           <nav
             aria-label="التنقل الرئيسي"
-            className="w-full md:w-auto grid grid-cols-4 md:flex items-center gap-1 sm:gap-1.5 bg-slate-900/90 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl border border-white/10"
+            className="w-full md:w-auto flex items-center justify-between md:justify-start gap-1 sm:gap-1.5 bg-slate-900/90 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl border border-white/10"
           >
             <button
               type="button"
               data-testid="nav-home"
               onClick={handleReturnToFrontHome}
-              className={`px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+              className={`flex-1 md:flex-initial px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
                 activePage === 'home'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
@@ -392,11 +431,10 @@ export default function App() {
               type="button"
               data-testid="nav-board"
               onClick={() => {
-                setActiveStudent(null);
-                setErrorMessage(null);
+                clearCurrentStudentSelection();
                 setActivePage('board');
               }}
-              className={`px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+              className={`shrink-0 px-2.5 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
                 activePage === 'board'
                   ? 'bg-gradient-to-l from-amber-500 to-yellow-500 text-slate-950 shadow-md'
                   : 'text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-400/30'
@@ -413,7 +451,7 @@ export default function App() {
                 setActivePage('schedule');
                 setSelectedScheduleStage(null);
               }}
-              className={`px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+              className={`flex-1 md:flex-initial px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
                 activePage === 'schedule'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
@@ -428,7 +466,7 @@ export default function App() {
               type="button"
               data-testid="nav-contact"
               onClick={() => setActivePage('contact')}
-              className={`px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+              className={`flex-1 md:flex-initial px-2 sm:px-3.5 py-2 rounded-lg sm:rounded-xl text-[11px] sm:text-sm font-black flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
                 activePage === 'contact'
                   ? 'bg-gradient-to-l from-cyan-500 to-teal-500 text-slate-950 shadow-md'
                   : 'text-slate-200 hover:text-white hover:bg-white/5'
@@ -551,8 +589,7 @@ export default function App() {
                     type="button"
                     data-testid="hero-cta-boards"
                     onClick={() => {
-                      setActiveStudent(null);
-                      setErrorMessage(null);
+                      clearCurrentStudentSelection();
                       setActivePage('board');
                     }}
                     className="w-full p-3.5 sm:p-4 rounded-2xl bg-gradient-to-l from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-lg flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-[0.99] text-right"
@@ -634,17 +671,17 @@ export default function App() {
         )}
 
         {/* التبديل بين الصفحات الثلاث (الرئيسية · جدول المواعيد · روابط التواصل) */}
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {activePage === 'home' && isLookupPageOpen && (
             <motion.div
               key="page-home-lookup"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
+              transition={{ duration: 0.2 }}
               className="space-y-6"
             >
-              <AnimatePresence mode="wait">
+              <AnimatePresence>
                 {/* 1. صفحة اختيار المرحلة الدراسية (تظهر فقط بعد الضغط على زر "استعلام عن الحضور والدرجات") */}
                 {!selectedStage ? (
                   <motion.section
@@ -905,12 +942,12 @@ export default function App() {
                     </div>
 
                     <StudentDashboard
-                      key="student-result"
+                      key={`student-result-${activeStudent.grade}-${activeStudent.id}`}
                       student={activeStudent}
                       summary={performanceSummary}
                       onResetSearch={() => {
-                        setActiveStudent(null);
-                        setErrorMessage(null);
+                        clearCurrentStudentSelection();
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
                     />
                   </motion.div>
@@ -926,7 +963,7 @@ export default function App() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
+              transition={{ duration: 0.2 }}
               data-testid="board-page"
               className="space-y-6 text-right"
             >
@@ -937,8 +974,7 @@ export default function App() {
                 errorMessage={errorMessage}
                 onLookupStudent={executeStudentLookup}
                 onSwitchStudent={() => {
-                  setActiveStudent(null);
-                  setErrorMessage(null);
+                  clearCurrentStudentSelection();
                 }}
               />
             </motion.div>
@@ -951,11 +987,11 @@ export default function App() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
+              transition={{ duration: 0.2 }}
               data-testid="schedule-page"
               className="space-y-6 text-right"
             >
-              <AnimatePresence mode="wait">
+              <AnimatePresence>
                 {!selectedScheduleStage ? (
                   /* 1. صفحة اختيار المرحلة لعرض جدول مواعيدها */
                   <motion.section

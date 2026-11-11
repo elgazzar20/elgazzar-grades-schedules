@@ -14,6 +14,7 @@ export interface ParsedScoreCard {
   isAttendanceOrPercentageOnly: boolean;
   isPending?: boolean;
   isRawValueOnly?: boolean;
+  isTextValue?: boolean;
   level: 'excellent' | 'good' | 'weak' | 'pending';
   levelLabel: string;
   categoryIcon: 'algebra' | 'geometry' | 'exam' | 'homework' | 'attendance' | 'general';
@@ -140,8 +141,11 @@ export function parseScoreItem(item: RawScoreItem): ParsedScoreCard {
     };
   }
 
-  // Case 1: Percentage string like "95%" or attendance column
-  if (rawStr.includes('%') || (categoryIcon === 'attendance' && !rawStr.includes('/'))) {
+  // Case 1: Percentage string like "95%" or numeric attendance value
+  if (
+    /^\d+(?:\.\d+)?\s*%$/.test(rawStr) ||
+    (categoryIcon === 'attendance' && /^\d+(?:\.\d+)?\s*%?$/.test(rawStr))
+  ) {
     const numMatch = rawStr.match(/(\d+(?:\.\d+)?)/);
     if (numMatch) {
       const pct = Math.min(100, Math.max(0, Math.round(parseFloat(numMatch[1]))));
@@ -221,18 +225,19 @@ export function parseScoreItem(item: RawScoreItem): ParsedScoreCard {
     };
   }
 
-  // Case 4: Custom text / note column added in the sheet (e.g. "ممتاز", "تم التسليم", "حاضر")
+  // Case 4: Custom text / note written inside the cell in the sheet (e.g. "متأخرة دائماً عن الموعد", "ربنا يقدرك علي نظافه الورقه")
   return {
     title: titleStr,
     cleanTitle,
     rawValue: rawStr,
     earned: null,
     max: null,
-    percentage: 100,
+    percentage: 0,
     isAttendanceOrPercentageOnly: true,
     isRawValueOnly: true,
-    level: 'excellent',
-    levelLabel: 'مسجل بالشيت',
+    isTextValue: true,
+    level: 'good',
+    levelLabel: 'ملاحظة مسجلة',
     categoryIcon,
   };
 }

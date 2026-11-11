@@ -473,11 +473,20 @@ export const ClassroomBoardArchive: React.FC<ClassroomBoardArchiveProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  const isPollingBoardsRef = React.useRef<boolean>(false);
+  const lastBoardsSerializedRef = React.useRef<string>('');
+
   const loadLiveBoardsFromSheet = useCallback(async (showSpinner = true) => {
+    if (isPollingBoardsRef.current && !showSpinner) return;
+    isPollingBoardsRef.current = true;
     if (showSpinner) setIsFetchingBoards(true);
     try {
       const liveItems = await fetchAllLiveBoardsFromSheet();
-      setAllBoards(liveItems);
+      const serialized = JSON.stringify(liveItems);
+      if (serialized !== lastBoardsSerializedRef.current || showSpinner) {
+        lastBoardsSerializedRef.current = serialized;
+        setAllBoards(liveItems);
+      }
       const now = new Date();
       setLastUpdatedTime(
         now.toLocaleTimeString('ar-EG', {
@@ -487,17 +496,18 @@ export const ClassroomBoardArchive: React.FC<ClassroomBoardArchiveProps> = ({
         })
       );
     } finally {
+      isPollingBoardsRef.current = false;
       if (showSpinner) setIsFetchingBoards(false);
     }
   }, []);
 
-  // الجلب الفوري عند فتح القسم + تحديث تلقائي حي كل 2.5 ثانية وعند التركيز على النافذة لمتابعة الشيت لحظياً
+  // الجلب الفوري عند فتح القسم + تحديث تلقائي حي كل 8 ثوانٍ وعند التركيز على النافذة لمتابعة الشيت لحظياً بدون تجميد الصفحة
   useEffect(() => {
     loadLiveBoardsFromSheet(true);
 
     const intervalId = window.setInterval(() => {
       loadLiveBoardsFromSheet(false);
-    }, 2500);
+    }, 8000);
 
     const handleFocus = () => {
       loadLiveBoardsFromSheet(false);

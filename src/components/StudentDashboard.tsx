@@ -320,27 +320,35 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         ctx.textAlign = 'right';
         ctx.fillStyle = '#FFFFFF';
         ctx.font = '800 20px Cairo, sans-serif';
-        ctx.fillText(card.cleanTitle, x + cardWidth - 22, y + 38);
+        ctx.fillText(card.cleanTitle, x + cardWidth - 22, y + 36);
 
-        ctx.fillStyle = '#94A3B8';
-        ctx.font = '700 15px Cairo, sans-serif';
-        ctx.fillText(`المستوى: ${card.levelLabel}`, x + cardWidth - 22, y + 70);
-
-        ctx.textAlign = 'left';
-        ctx.fillStyle = card.isPending
-          ? '#94A3B8'
-          : card.level === 'excellent'
-            ? '#34D399'
-            : card.level === 'good'
-              ? '#38BDF8'
-              : '#FB7185';
-        ctx.font = card.isPending ? '800 20px Cairo, sans-serif' : '900 25px Cairo, sans-serif';
-        ctx.fillText(card.rawValue, x + 24, y + 44);
-
-        if (!card.isAttendanceOrPercentageOnly && !card.isPending) {
+        if (card.isTextValue) {
           ctx.fillStyle = '#67E8F9';
-          ctx.font = '800 15px Cairo, sans-serif';
-          ctx.fillText(`${card.percentage}%`, x + 24, y + 72);
+          ctx.font = '800 16px Cairo, sans-serif';
+          const shortText =
+            card.rawValue.length > 36 ? `${card.rawValue.slice(0, 36)}...` : card.rawValue;
+          ctx.fillText(shortText, x + cardWidth - 22, y + 70);
+        } else {
+          ctx.fillStyle = '#94A3B8';
+          ctx.font = '700 15px Cairo, sans-serif';
+          ctx.fillText(`المستوى: ${card.levelLabel}`, x + cardWidth - 22, y + 70);
+
+          ctx.textAlign = 'left';
+          ctx.fillStyle = card.isPending
+            ? '#94A3B8'
+            : card.level === 'excellent'
+              ? '#34D399'
+              : card.level === 'good'
+                ? '#38BDF8'
+                : '#FB7185';
+          ctx.font = card.isPending ? '800 20px Cairo, sans-serif' : '900 24px Cairo, sans-serif';
+          ctx.fillText(card.rawValue, x + 24, y + 44);
+
+          if (!card.isAttendanceOrPercentageOnly && !card.isPending) {
+            ctx.fillStyle = '#67E8F9';
+            ctx.font = '800 15px Cairo, sans-serif';
+            ctx.fillText(`${card.percentage}%`, x + 24, y + 72);
+          }
         }
       });
 
@@ -625,52 +633,82 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <div
                     key={`${card.title}-${idx}`}
                     data-testid="score-card"
-                    className="bg-slate-950/65 border border-white/10 hover:border-cyan-400/30 rounded-2xl p-4 flex flex-col justify-between gap-3 transition-colors"
+                    className="bg-slate-950/75 border border-white/10 hover:border-cyan-400/30 rounded-2xl p-4 flex flex-col justify-between gap-3 transition-colors overflow-hidden"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-xl bg-slate-900 border border-white/10">
-                          {renderCategoryIcon(card.categoryIcon)}
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black text-white leading-snug">
-                            {card.cleanTitle}
-                          </h4>
-                          <span className="text-[11px] font-bold text-slate-300 inline-flex items-center gap-1 mt-0.5">
-                            <CheckCircle2
-                              className={`w-3 h-3 ${
-                                card.isPending ? 'text-slate-400' : 'text-emerald-400'
-                              }`}
-                            />
-                            <span>المستوى: {card.levelLabel}</span>
+                    {card.isTextValue ? (
+                      /* تصميم متناسق ومرتب عندما تحتوي الخانة على جملة أو ملاحظة نصية طويلة */
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <div className="p-2 rounded-xl bg-slate-900 border border-white/10 shrink-0">
+                              {renderCategoryIcon(card.categoryIcon)}
+                            </div>
+                            <h4 className="text-sm sm:text-base font-black text-white leading-snug break-words">
+                              {card.cleanTitle}
+                            </h4>
+                          </div>
+
+                          <span className="px-2.5 py-1 rounded-lg bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-[11px] font-black whitespace-nowrap shrink-0">
+                            {card.levelLabel}
                           </span>
                         </div>
-                      </div>
 
-                      <div className="text-left shrink-0">
                         <div
-                          dir="ltr"
-                          className={`text-base sm:text-lg font-black font-mono-num whitespace-nowrap ${scoreTextColor}`}
+                          dir="rtl"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-emerald-400/30 text-emerald-300 text-xs sm:text-sm font-black leading-relaxed break-words text-right"
                         >
                           {card.rawValue}
                         </div>
-                        {!card.isAttendanceOrPercentageOnly && !card.isPending && (
-                          <div
-                            dir="ltr"
-                            className="text-[11px] font-bold text-slate-400 font-mono-num whitespace-nowrap"
-                          >
-                            {card.percentage}%
-                          </div>
-                        )}
                       </div>
-                    </div>
+                    ) : (
+                      /* تصميم متناسق عندما تحتوي الخانة على درجة رقمية أو نسبة مئوية أو خانة فارغة */
+                      <>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <div className="p-2 rounded-xl bg-slate-900 border border-white/10 shrink-0">
+                              {renderCategoryIcon(card.categoryIcon)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-sm sm:text-base font-black text-white leading-snug break-words">
+                                {card.cleanTitle}
+                              </h4>
+                              <span className="text-[11px] font-bold text-slate-300 inline-flex items-center gap-1 mt-0.5">
+                                <CheckCircle2
+                                  className={`w-3 h-3 shrink-0 ${
+                                    card.isPending ? 'text-slate-400' : 'text-emerald-400'
+                                  }`}
+                                />
+                                <span>المستوى: {card.levelLabel}</span>
+                              </span>
+                            </div>
+                          </div>
 
-                    <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${barColor}`}
-                        style={{ width: `${card.isPending ? 0 : card.percentage}%` }}
-                      />
-                    </div>
+                          <div className="text-left shrink-0 bg-slate-900/85 border border-white/10 px-3 py-1.5 rounded-xl">
+                            <div
+                              dir="ltr"
+                              className={`text-sm sm:text-base font-black font-mono-num whitespace-nowrap ${scoreTextColor}`}
+                            >
+                              {card.rawValue}
+                            </div>
+                            {!card.isAttendanceOrPercentageOnly && !card.isPending && (
+                              <div
+                                dir="ltr"
+                                className="text-[10px] font-bold text-slate-400 font-mono-num whitespace-nowrap text-center"
+                              >
+                                {card.percentage}%
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${barColor}`}
+                            style={{ width: `${card.isPending ? 0 : card.percentage}%` }}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}
@@ -681,13 +719,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           {student.note && (
             <div
               data-testid="teacher-note"
-              className="bg-gradient-to-l from-cyan-500/10 via-teal-500/5 to-slate-950/60 border border-cyan-400/25 p-4 sm:p-5 rounded-2xl space-y-1.5"
+              className="bg-gradient-to-l from-cyan-500/10 via-teal-500/5 to-slate-950/60 border border-cyan-400/25 p-4 sm:p-5 rounded-2xl space-y-2 overflow-hidden"
             >
               <div className="text-xs sm:text-sm font-black text-cyan-300 flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
                 <span>ملاحظات مسجلة في الشيت:</span>
               </div>
-              <p className="text-sm sm:text-base text-white font-bold leading-relaxed">
+              <p className="text-xs sm:text-base text-white font-bold leading-relaxed break-words">
                 «{student.note}»
               </p>
             </div>
