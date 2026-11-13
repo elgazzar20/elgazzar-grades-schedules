@@ -42,16 +42,25 @@ import {
   getStageForGrade,
 } from './utils/grading';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
-import { StudentDashboard } from './components/StudentDashboard';
+import { StudentDashboard, StudentPortalView } from './components/StudentDashboard';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { ClassroomBoardArchive } from './components/ClassroomBoardArchive';
+import { UrgentAnnouncementBar } from './components/UrgentAnnouncementBar';
+import { HonorRollSection } from './components/HonorRollSection';
 import {
   DEFAULT_SPREADSHEET_ID,
   DEFAULT_STAGE_SCHEDULES,
   GradeScheduleGroup,
+  HonorRollData,
   StageSchedulesMap,
+  UrgentAnnouncementItem,
   discoverSpreadsheetTabs,
   fetchLiveStudentFromGoogleSheets,
+  getCachedAnnouncements,
+  getCachedHonorRoll,
+  isStudentGradeTabName,
+  subscribeToRealtimeAnnouncements,
+  subscribeToRealtimeHonorRoll,
   subscribeToRealtimeScheduleUpdates,
   subscribeToRealtimeStudentUpdates,
 } from './services/sheetsService';
@@ -195,6 +204,14 @@ export default function App() {
   const [activeStudent, setActiveStudent] = useState<StudentRecord | null>(null);
   const [avatarLoadError, setAvatarLoadError] = useState<boolean>(false);
   const [isLookupPageOpen, setIsLookupPageOpen] = useState<boolean>(false);
+  const [urgentAnnouncements, setUrgentAnnouncements] = useState<UrgentAnnouncementItem[]>(() =>
+    getCachedAnnouncements()
+  );
+  const [honorRollData, setHonorRollData] = useState<HonorRollData | null>(() =>
+    getCachedHonorRoll()
+  );
+  const [activeHonorRank, setActiveHonorRank] = useState<number | null>(null);
+  const [studentSubView, setStudentSubView] = useState<StudentPortalView>('choice');
 
   // مراجع متزامنة لمنع أي تحديث خلفي قديم من إعادة الطالب السابق بعد الضغط على "بحث عن طالب آخر"
   const activeStudentKeyRef = React.useRef<string | null>(null);
@@ -204,10 +221,39 @@ export default function App() {
     lookupSessionIdRef.current += 1;
     activeStudentKeyRef.current = null;
     setActiveStudent(null);
+    setActiveHonorRank(null);
+    setStudentSubView('choice');
     setStudentIdInput('');
     setErrorMessage(null);
     setIsLoading(false);
   };
+
+  const handleStudentSubViewChange = (nextView: StudentPortalView) => {
+    setStudentSubView((prev) => {
+      if (prev === nextView) return prev;
+      if (typeof window !== 'undefined' && nextView !== 'choice') {
+        try {
+          window.history.pushState({ studentSubView: nextView }, '');
+        } catch {
+          // تجاهل في حال تقييد التاريخ
+        }
+      }
+      return nextView;
+    });
+  };
+
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const stateView = event.state?.studentSubView as StudentPortalView | undefined;
+      if (stateView === 'grades' || stateView === 'attendance') {
+        setStudentSubView(stateView);
+      } else {
+        setStudentSubView('choice');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const handleGoToGradesLookup = () => {
     clearCurrentStudentSelection();
@@ -217,15 +263,15 @@ export default function App() {
     setSelectedGrade('');
   };
 
-  // اشتراك لحظي (Real-time) عبر الشيت الخارجي للمواعيد والدرجات لتحديث جدول المواعيد والصفوف تلقائياً
+  // اشتراك لحظي (Real-time) عبر الشيت الخارجي للإعلانات العاجلة ولوحة الشرف والمواعيد والدرجات
   useEffect(() => {
-    document.title = 'مستر محمد الجزار';
+    document.title = 'منصة مستر محمد الجزار -مدرس الرياضيات';
     discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID).then((tabs) => {
       if (tabs.length > 0) {
         setAvailableGrades((prev) => {
-          const merged = [...prev];
+          const merged = prev.filter((name) => isStudentGradeTabName(name));
           for (const t of tabs) {
-            if (t.name && !merged.includes(t.name)) {
+            if (t.name && isStudentGradeTabName(t.name) && !merged.includes(t.name)) {
               merged.push(t.name);
             }
           }
@@ -233,10 +279,20 @@ export default function App() {
         });
       }
     });
+    const unsubscribeAnnouncements = subscribeToRealtimeAnnouncements((liveItems) => {
+      setUrgentAnnouncements(liveItems);
+    });
+    const unsubscribeHonorRoll = subscribeToRealtimeHonorRoll((liveHonorRoll) => {
+      setHonorRollData(liveHonorRoll);
+    });
     const unsubscribeSchedule = subscribeToRealtimeScheduleUpdates((liveSchedules) => {
       setStageSchedules(liveSchedules);
     });
-    return () => unsubscribeSchedule();
+    return () => {
+      unsubscribeAnnouncements();
+      unsubscribeHonorRoll();
+      unsubscribeSchedule();
+    };
   }, []);
 
   // اشتراك لحظي (Real-time) لتحديث الشهادة تلقائياً فور تعديل الشيت مع منع عودة الطالب السابق عند عمل بحث جديد
@@ -310,7 +366,7 @@ export default function App() {
       return;
     }
     if (!cleanId) {
-      setErrorMessage('يرجى كتابة كود الطالب لعرض الشهادة.');
+      setErrorMessage('يرجى كتابة كود الطالب لعرض النتيجة أو سجل الحضور.');
       return;
     }
 
@@ -326,6 +382,7 @@ export default function App() {
 
       if (liveResult.student) {
         activeStudentKeyRef.current = `${liveResult.student.grade}__${liveResult.student.id}`;
+        setStudentSubView('choice');
         setActiveStudent(liveResult.student);
         setErrorMessage(null);
       } else {
@@ -346,6 +403,7 @@ export default function App() {
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setActiveHonorRank(null);
     executeStudentLookup(selectedGrade, studentIdInput);
   };
 
@@ -374,8 +432,10 @@ export default function App() {
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/55 via-slate-900/40 to-slate-950/75" />
       </div>
 
-      {/* مؤثرات الاحتفال عند تحقيق تقدير 90% فأكثر */}
-      <ConfettiOverlay active={Boolean(performanceSummary?.badge.triggerConfetti)} />
+      {/* مؤثرات الاحتفال عند تحقيق تقدير 90% فأكثر داخل صفحة النتيجة */}
+      <ConfettiOverlay
+        active={Boolean(performanceSummary?.badge.triggerConfetti && studentSubView === 'grades')}
+      />
 
       {/* 1. البار العلوي الثابت (Top Navigation Bar): صف واحد مدمج وأنيق على الهاتف والكمبيوتر */}
       <header className="sticky top-0 z-40 w-full bg-slate-950/85 backdrop-blur-xl border-b border-white/10 no-print">
@@ -480,6 +540,9 @@ export default function App() {
         </div>
       </header>
 
+      {/* شريط الإعلانات العاجلة (Ticker) المتصل لحظياً بورقة "شريط الإعلانات" في شيت جوجل */}
+      <UrgentAnnouncementBar announcements={urgentAnnouncements} />
+
       {/* المحتوى الرئيسي */}
       <main className="relative z-10 max-w-4xl mx-auto px-3.5 sm:px-4 py-5 sm:py-9 space-y-6 sm:space-y-8">
         {/* بانر ترحيبي متكامل يوضح خدمات المنصة ويوجه الطالب وولي الأمر فوراً (يختفي عند فتح الشهادة لعدم تكرار الهيدر) */}
@@ -576,7 +639,7 @@ export default function App() {
                           استعلام الدرجات والحضور
                         </div>
                         <div className="text-[11px] font-bold text-slate-900/85 mt-0.5">
-                          ادخل كود الطالب لعرض الشهادة والدرجات
+                          ادخل كود الطالب لعرض النتيجة أو سجل الحضور
                         </div>
                       </div>
                     </div>
@@ -668,6 +731,11 @@ export default function App() {
               </div>
             )}
           </section>
+        )}
+
+        {/* قسم لوحة الشرف للمتفوقين (يظهر في الصفحة الرئيسية) */}
+        {activePage === 'home' && !isLookupPageOpen && !activeStudent && (
+          <HonorRollSection data={honorRollData} />
         )}
 
         {/* التبديل بين الصفحات الثلاث (الرئيسية · جدول المواعيد · روابط التواصل) */}
@@ -889,7 +957,7 @@ export default function App() {
                           className="px-7 py-4 rounded-2xl bg-gradient-to-l from-cyan-500 via-teal-400 to-emerald-400 hover:from-cyan-400 hover:to-emerald-300 text-slate-950 font-black text-sm sm:text-base shadow-[0_10px_25px_rgba(6,182,212,0.35)] hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
                         >
                           <Award className="w-5 h-5 stroke-[2.5]" />
-                          <span>{isLoading ? 'جاري البحث...' : 'عرض الشهادة'}</span>
+                          <span>{isLoading ? 'جاري البحث...' : 'بحث وعرض البيانات'}</span>
                         </button>
                       </div>
 
@@ -917,36 +985,54 @@ export default function App() {
                     transition={{ duration: 0.25 }}
                     className="space-y-4"
                   >
-                    {/* اختصار سريع لفتح سبورة الحصص الخاصة بصف الطالب مباشرة */}
-                    <div className="no-print flex items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900/85 border border-amber-400/40 shadow-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
-                          <Camera className="w-5 h-5" />
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xs sm:text-sm font-black text-white">
-                            📸 سبورة الحصص والملخصات — الصف {activeStudent.grade}
-                          </div>
-                          <div className="text-[11px] font-bold text-amber-300/90">
-                            تصفح صور سبورات الحصص والواجبات الخاصة بصفك الآن
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setActivePage('board')}
-                        className="px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 text-xs font-black shrink-0 cursor-pointer shadow-md"
+                    {/* اختصار سريع لفتح سبورة الحصص الخاصة بصف الطالب (يظهر في شاشة بيانات الطالب الرئيسية فقط) */}
+                    {studentSubView === 'choice' && (
+                      <div
+                        data-testid="student-board-shortcut-banner"
+                        className="no-print flex items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900/85 border border-amber-400/40 shadow-lg"
                       >
-                        فتح سبورة الحصص ←
-                      </button>
-                    </div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+                            <Camera className="w-5 h-5" />
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs sm:text-sm font-black text-white">
+                              📸 سبورة الحصص والملخصات — الصف {activeStudent.grade}
+                            </div>
+                            <div className="text-[11px] font-bold text-amber-300/90">
+                              تصفح صور سبورات الحصص والواجبات الخاصة بصفك الآن
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setActivePage('board')}
+                          className="px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 text-xs font-black shrink-0 cursor-pointer shadow-md"
+                        >
+                          فتح سبورة الحصص ←
+                        </button>
+                      </div>
+                    )}
 
                     <StudentDashboard
                       key={`student-result-${activeStudent.grade}-${activeStudent.id}`}
                       student={activeStudent}
                       summary={performanceSummary}
+                      hideStudentCode={Boolean(activeHonorRank)}
+                      honorRank={activeHonorRank}
+                      activeView={studentSubView}
+                      onViewChange={handleStudentSubViewChange}
+                      backButtonLabel={
+                        activeHonorRank ? 'العودة للوحة الشرف' : 'بحث عن طالب آخر'
+                      }
                       onResetSearch={() => {
+                        const cameFromHonorRoll = Boolean(activeHonorRank);
                         clearCurrentStudentSelection();
+                        if (cameFromHonorRoll) {
+                          setIsLookupPageOpen(false);
+                          setSelectedStage(null);
+                          setSelectedGrade('');
+                        }
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
                     />

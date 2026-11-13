@@ -13,6 +13,7 @@ export interface StudentRecord {
   name: string;
   grade: string;
   group: string;
+  rawGroup?: string;
   note: string;
   scores: RawScoreItem[];
 }

@@ -2,6 +2,45 @@ import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { StudentRecord } from '../data/mockDatabase';
 import { StageId } from '../utils/grading';
 import {
+  StudentPaymentRecord,
+  StudentPaymentSummary,
+  applyCalendarDeadlineToPaymentSummary,
+  buildStudentPaymentSummary,
+  parsePaymentDashboardRows,
+  parsePaymentDatabaseRows,
+} from '../utils/payment';
+import {
+  ACADEMIC_MONTHS_ORDER,
+  ARABIC_MONTH_NAMES,
+  AttendanceDatabaseEntry,
+  AttendanceSessionItem,
+  AttendanceSessionStatus,
+  MonthlyAttendanceRecord,
+  StudentAttendanceData,
+  buildAttendanceStatusPresentation,
+  buildMonthScheduledDates,
+  computeAttendanceTermInsights,
+  deriveScheduleDaysLabelFromIsoDates,
+  formatArabicSessionCount,
+  formatIsoDateDetails,
+  getAcademicYearForMonth,
+  isMatchingAttendanceStudentCode,
+  normalizeAttendanceArabicText,
+  parseAttendanceArchiveRows,
+  parseAttendanceCellStatus,
+  parseAttendanceDatabaseRows,
+  parseFlexibleAttendanceDateToIso,
+  resolveStudentWeeklySchedule,
+} from '../utils/attendance';
+
+export { ACADEMIC_MONTHS_ORDER, ARABIC_MONTH_NAMES, formatArabicSessionCount };
+export type {
+  AttendanceSessionItem,
+  AttendanceSessionStatus,
+  MonthlyAttendanceRecord,
+  StudentAttendanceData,
+};
+import {
   auth,
   db,
   getAccessToken,
@@ -198,6 +237,46 @@ function normalizeArabicText(input: string): string {
 }
 
 /**
+ * التحقق مما إذا كان اسم الورقة (Tab) في شيت الدرجات يمثل صفاً دراسياً للطلاب
+ * واستبعاد أوراق التحكم مثل "شريط الإعلانات" أو "جدول المواعيد" أو "سبورة الحصص"
+ */
+export function isStudentGradeTabName(tabName: string): boolean {
+  const norm = normalizeArabicText(tabName);
+  if (!norm) return false;
+  if (
+    norm.includes('اعلان') ||
+    norm.includes('تنبيه') ||
+    norm.includes('شريط') ||
+    norm.includes('عاجل') ||
+    norm.includes('شرف') ||
+    norm.includes('اوائل') ||
+    norm.includes('تكريم') ||
+    norm.includes('متفوق') ||
+    norm.includes('حضور') ||
+    norm.includes('غياب') ||
+    norm.includes('سجل') ||
+    norm.includes('ارشيف') ||
+    norm.includes('دفع') ||
+    norm.includes('مصاريف') ||
+    norm.includes('سداد') ||
+    norm.includes('قاعده') ||
+    norm.includes('جدول') ||
+    norm.includes('مواعيد') ||
+    norm.includes('سبور') ||
+    norm.includes('اعدادات') ||
+    norm.includes('ارشادات')
+  ) {
+    return false;
+  }
+  return (
+    norm.includes('ابتدا') ||
+    norm.includes('اعداد') ||
+    norm.includes('ثانو') ||
+    norm.includes('صف')
+  );
+}
+
+/**
  * اكتشاف كافة الأوراق (Tabs) ومعرفاتها (GIDs) داخل أي ملف Google Sheet تلقائياً
  * حتى لو أضاف المعلم ورقة جديدة في الشيت
  */
@@ -386,6 +465,43 @@ function isMatchingStudentCode(rowCodeRaw: string, targetCodeRaw: string): boole
  * تحويل صفوف الجدول (2D array) إلى سجل طالب مع قراءة كافة الأعمدة والخانات الجديدة تلقائياً
  * مهما كان عدد الأعمدة المضافة في الشيت أو نوع البيانات بداخلها
  */
+const AUTO_FILLED_DEFAULT_GROUPS = new Set<string>(
+  [
+    '-',
+    '—',
+    'غير محدد',
+    'غير مسجل',
+    'بدون مجموعة',
+    'لا يوجد',
+    'مجموعة السبت والثلاثاء - 6 مساءً',
+    'مجموعة الأحد والأربعاء - 3 عصراً',
+    'مجموعة السبت والثلاثاء - 5 مساءً',
+    'مجموعة الاثنين والخميس - 5 مساءً',
+    'مجموعة الإثنين والخميس - 5 مساءً',
+    'مجموعة السبت والثلاثاء - 4 عصراً',
+    'مجموعة الاثنين والخميس - 4 عصراً',
+    'مجموعة الإثنين والخميس - 4 عصراً',
+    'مجموعة السبت والثلاثاء - 3 عصراً',
+    'مجموعة السبت والثلاثاء - 2 ظهراً',
+    'مجموعة الاثنين والخميس - 3 عصراً',
+    'مجموعة الإثنين والخميس - 3 عصراً',
+    'مجموعة السبت والثلاثاء - 8 مساءً',
+  ].map((g) => normalizeArabicText(g))
+);
+
+/**
+ * تنظيف حقل المجموعة بحيث لا تظهر أي بيانات افتراضية للطالب غير المسجل له مجموعة خاصة
+ */
+export function cleanRecordedGroup(rawGroup: string): string {
+  const trimmed = String(rawGroup || '').trim();
+  if (!trimmed) return '';
+  const norm = normalizeArabicText(trimmed);
+  if (!norm || AUTO_FILLED_DEFAULT_GROUPS.has(norm)) {
+    return '';
+  }
+  return trimmed;
+}
+
 function parseStudentFromRows(
   rows: string[][],
   gradeName: string,
@@ -394,21 +510,10 @@ function parseStudentFromRows(
   if (!rows || rows.length < 2) return null;
   const headers = (rows[0] || []).map((h) => String(h || '').trim());
 
-  // معرفة آخر عمود يحتوي على عنوان أو بيانات في الشيت بالكامل
   let maxColsInSheet = headers.length;
   for (const r of rows) {
     if (r && r.length > maxColsInSheet) {
       maxColsInSheet = r.length;
-    }
-  }
-
-  // تحديد الأعمدة الفعالة في الشيت (من العمود الخامس فصاعداً) التي لها عنوان أو بها بيانات لأي طالب
-  const activeColumnIndices: number[] = [];
-  for (let c = 4; c < maxColsInSheet; c++) {
-    const hasHeader = Boolean(headers[c]);
-    const hasAnyValueInSheet = rows.slice(1).some((r) => r && String(r[c] ?? '').trim() !== '');
-    if (hasHeader || hasAnyValueInSheet) {
-      activeColumnIndices.push(c);
     }
   }
 
@@ -419,13 +524,13 @@ function parseStudentFromRows(
     if (isMatchingStudentCode(rowId, studentCode)) {
       const scores: { title: string; value: string }[] = [];
 
-      for (const c of activeColumnIndices) {
-        const colTitle = headers[c] || `خانة إضافية (${c - 3})`;
+      for (let c = 4; c < maxColsInSheet; c++) {
+        const colTitle = headers[c] || `تقييم (${c - 3})`;
         const cellVal =
           row[c] !== undefined && row[c] !== null ? String(row[c]).trim() : '';
 
-        // إذا كانت الخانة لها عنوان في الشيت أو لها قيمة مسجلة للطالب نضيفها فوراً
-        if (headers[c] || cellVal !== '') {
+        // عرض الخانات المسجل بها درجة أو تقييم فعلي للطالب فقط (بدون إظهار خانات فارغة افتراضية)
+        if (cellVal !== '' && cellVal !== '-') {
           scores.push({
             title: colTitle,
             value: cellVal,
@@ -436,7 +541,8 @@ function parseStudentFromRows(
       return {
         id: rowId || normalizeDigits(studentCode),
         name: String(row[1] || '').trim(),
-        group: String(row[2] || '').trim(),
+        group: cleanRecordedGroup(String(row[2] || '')),
+        rawGroup: String(row[2] || '').trim(),
         note: String(row[3] || '').trim(),
         grade: gradeName,
         scores,
@@ -665,29 +771,6 @@ export function subscribeToRealtimeStudentUpdates(
 ): () => void {
   let isActive = true;
   let isPolling = false;
-  const docId = getStudentFirestoreDocId(gradeName, studentCode);
-  const path = `students/${docId}`;
-
-  const unsubscribeFirestore = onSnapshot(
-    doc(db, 'students', docId),
-    (snapshot) => {
-      if (!isActive) return;
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        onUpdate({
-          id: String(data.id ?? studentCode.trim()),
-          name: String(data.name ?? ''),
-          grade: String(data.grade ?? gradeName),
-          group: String(data.group ?? ''),
-          note: String(data.note ?? ''),
-          scores: Array.isArray(data.scores) ? data.scores : [],
-        });
-      }
-    },
-    (error) => {
-      handleFirestoreError(error, OperationType.GET, path);
-    }
-  );
 
   const pollNow = async () => {
     if (!isActive || isPolling) return;
@@ -712,7 +795,6 @@ export function subscribeToRealtimeStudentUpdates(
 
   return () => {
     isActive = false;
-    unsubscribeFirestore();
     window.clearInterval(intervalId);
     window.removeEventListener('focus', handleFocus);
   };
@@ -1036,3 +1118,1431 @@ export function subscribeToRealtimeScheduleUpdates(
     window.removeEventListener('focus', handleFocus);
   };
 }
+
+// ============================================================================
+// شريط الإعلانات العاجلة (Live Urgent Announcements Ticker from Google Sheets)
+// ============================================================================
+
+export const DEFAULT_ANNOUNCEMENT_GID = '514573363';
+const ANNOUNCEMENTS_CACHE_KEY = 'elgazzar_live_announcements_v1';
+
+export interface UrgentAnnouncementItem {
+  id: string;
+  text: string;
+  targetGrade: string;
+  date: string;
+  status: string;
+}
+
+function isAnnouncementStatusDisabled(rawStatus: string): boolean {
+  const norm = normalizeArabicText(rawStatus).toLowerCase();
+  if (!norm) return false;
+  const disabledKeywords = [
+    'متوقف',
+    'توقف',
+    'مغلق',
+    'مخفي',
+    'اخفاء',
+    'غير مفعل',
+    'غير نشط',
+    'ايقاف',
+    'ملغي',
+    'انتهي',
+    'لا',
+    'false',
+    'off',
+    'stop',
+    'hide',
+    'disabled',
+    'inactive',
+    '0',
+  ];
+  return disabledKeywords.some((kw) => norm === kw || norm.includes(kw));
+}
+
+function isInstructionCellText(text: string): boolean {
+  const norm = normalizeArabicText(text);
+  return (
+    norm.includes('عدل النص في الخليه') ||
+    norm.includes('ارشادات الاستخدام') ||
+    norm.includes('لاخفاء الشريط')
+  );
+}
+
+/**
+ * تحليل صفوف ورقة "شريط الإعلانات" واستخراج التنبيهات المفعلة فقط
+ */
+export function parseAnnouncementsFromRows(rows: string[][]): UrgentAnnouncementItem[] {
+  if (!rows || rows.length === 0) return [];
+
+  const nonEmptyRows = rows
+    .map((r) => r.map((c) => String(c ?? '').trim()))
+    .filter((r) => r.some((c) => c !== ''));
+
+  if (nonEmptyRows.length === 0) return [];
+
+  const firstRow = nonEmptyRows[0];
+  const firstRowNorm = firstRow.map((c) => normalizeArabicText(c));
+
+  const looksLikeHeader = firstRowNorm.some(
+    (c) =>
+      c.includes('الحاله') ||
+      c.includes('نص الاعلان') ||
+      c.includes('الاعلان العاجل') ||
+      c.includes('الصف المستهدف') ||
+      c.includes('تاريخ النشر') ||
+      c.includes('ارشادات')
+  );
+
+  let statusIdx = 0;
+  let textIdx = 1;
+  let gradeIdx = 2;
+  let dateIdx = 3;
+  let startRow = 0;
+
+  if (looksLikeHeader) {
+    startRow = 1;
+    const foundStatus = firstRowNorm.findIndex(
+      (c) => c.includes('الحاله') || c === 'حاله' || c.includes('تفعيل')
+    );
+    const foundText = firstRowNorm.findIndex(
+      (c) =>
+        c.includes('نص') ||
+        c.includes('اعلان') ||
+        c.includes('تنبيه') ||
+        c.includes('رساله') ||
+        c.includes('الخبر')
+    );
+    const foundGrade = firstRowNorm.findIndex(
+      (c) => c.includes('الصف') || c.includes('المستهدف') || c.includes('المرحله')
+    );
+    const foundDate = firstRowNorm.findIndex(
+      (c) => c.includes('تاريخ') || c.includes('اليوم') || c.includes('وقت')
+    );
+
+    if (foundStatus !== -1) statusIdx = foundStatus;
+    if (foundText !== -1) textIdx = foundText;
+    if (foundGrade !== -1) gradeIdx = foundGrade;
+    if (foundDate !== -1) dateIdx = foundDate;
+  }
+
+  const items: UrgentAnnouncementItem[] = [];
+
+  for (let i = startRow; i < nonEmptyRows.length; i++) {
+    const row = nonEmptyRows[i];
+
+    if (looksLikeHeader) {
+      const rawStatus = row[statusIdx] ?? '';
+      let rawText = row[textIdx] ?? '';
+      const rawGrade = row[gradeIdx] ?? '';
+      const rawDate = row[dateIdx] ?? '';
+
+      // إذا كتب المعلم النص في الخلية الأولى مباشرة دون كلمة "مفعل"
+      if (
+        !rawText &&
+        rawStatus &&
+        rawStatus.length > 12 &&
+        !isAnnouncementStatusDisabled(rawStatus) &&
+        !isInstructionCellText(rawStatus)
+      ) {
+        rawText = rawStatus;
+      }
+
+      if (!rawText || isInstructionCellText(rawText)) continue;
+      if (isAnnouncementStatusDisabled(rawStatus)) continue;
+
+      items.push({
+        id: `ann_${i}_${rawText.slice(0, 24)}`,
+        text: rawText,
+        targetGrade: rawGrade && !isInstructionCellText(rawGrade) ? rawGrade : '',
+        date: rawDate && !isInstructionCellText(rawDate) ? rawDate : '',
+        status: rawStatus || 'مفعل',
+      });
+    } else {
+      // في حال كتب المعلم سطراً واحداً مباشراً بدون صف عناوين
+      const nonInstructionCells = row.filter((c) => c && !isInstructionCellText(c));
+      if (nonInstructionCells.length === 0) continue;
+
+      const firstCell = nonInstructionCells[0];
+      if (isAnnouncementStatusDisabled(firstCell)) continue;
+
+      let textCell = '';
+      let gradeCell = '';
+      let dateCell = '';
+
+      if (nonInstructionCells.length === 1) {
+        textCell = firstCell;
+      } else {
+        const firstNorm = normalizeArabicText(firstCell);
+        const firstIsStatusKeyword =
+          firstNorm === 'مفعل' ||
+          firstNorm === 'نشط' ||
+          firstNorm === 'تفعيل' ||
+          firstNorm === 'نعم' ||
+          firstNorm === '1' ||
+          firstNorm.toLowerCase() === 'true';
+
+        if (firstIsStatusKeyword) {
+          textCell = nonInstructionCells[1] || '';
+          gradeCell = nonInstructionCells[2] || '';
+          dateCell = nonInstructionCells[3] || '';
+        } else {
+          textCell = firstCell;
+          gradeCell = nonInstructionCells[1] || '';
+          dateCell = nonInstructionCells[2] || '';
+        }
+      }
+
+      if (!textCell || isAnnouncementStatusDisabled(textCell)) continue;
+
+      items.push({
+        id: `ann_raw_${i}_${textCell.slice(0, 24)}`,
+        text: textCell,
+        targetGrade: gradeCell,
+        date: dateCell,
+        status: 'مفعل',
+      });
+    }
+  }
+
+  return items;
+}
+
+let cachedAnnouncementGid: string = DEFAULT_ANNOUNCEMENT_GID;
+let lastAnnouncementTabCheck = 0;
+
+async function resolveAnnouncementTabGid(): Promise<string> {
+  const now = Date.now();
+  if (now - lastAnnouncementTabCheck > 60000) {
+    lastAnnouncementTabCheck = now;
+    try {
+      const tabs = await discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID);
+      const found = tabs.find((t) => {
+        const norm = normalizeArabicText(t.name);
+        return (
+          norm.includes('اعلان') ||
+          norm.includes('تنبيه') ||
+          norm.includes('شريط') ||
+          norm.includes('عاجل')
+        );
+      });
+      if (found?.gid) {
+        cachedAnnouncementGid = found.gid;
+      }
+    } catch {
+      // keep cachedAnnouncementGid
+    }
+  }
+  return cachedAnnouncementGid;
+}
+
+export function getCachedAnnouncements(): UrgentAnnouncementItem[] {
+  try {
+    const raw = localStorage.getItem(ANNOUNCEMENTS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedAnnouncements(items: UrgentAnnouncementItem[]): void {
+  try {
+    localStorage.setItem(ANNOUNCEMENTS_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+/**
+ * جلب الإعلانات العاجلة مباشرة من شيت جوجل (`شريط الإعلانات` gid=514573363)
+ */
+export async function fetchLiveAnnouncementsFromGoogleSheets(): Promise<
+  UrgentAnnouncementItem[] | null
+> {
+  const spreadsheetId = DEFAULT_SPREADSHEET_ID;
+  const gid = await resolveAnnouncementTabGid();
+  const timestamp = Date.now();
+
+  // 1. القراءة المباشرة عبر CSV الخام لضمان سرعة واستجابة فورية بدون كاش
+  try {
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}&_t=${timestamp}`;
+    const res = await fetch(csvUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const csvText = await res.text();
+      if (!csvText.trim().startsWith('<!DOCTYPE html>')) {
+        const rows = parseCsvToRows(csvText);
+        const items = parseAnnouncementsFromRows(rows);
+        saveCachedAnnouncements(items);
+        return items;
+      }
+    }
+  } catch {
+    // المتابعة إلى gviz
+  }
+
+  // 2. القراءة عبر Google Visualization endpoint كبديل
+  try {
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=0&gid=${gid}&_t=${timestamp}`;
+    const res = await fetch(gvizUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const text = await res.text();
+      const rows = parseGvizResponse(text);
+      const items = parseAnnouncementsFromRows(rows);
+      saveCachedAnnouncements(items);
+      return items;
+    }
+  } catch {
+    // ignore transient network errors
+  }
+
+  return null;
+}
+
+/**
+ * اشتراك لحظي (Real-time Subscription) لشريط الإعلانات العاجلة
+ * يحدث الشريط تلقائياً كل 5 ثوانٍ وعند التركيز على النافذة ليظهر أي تعديل أو إيقاف في الشيت فوراً
+ */
+export function subscribeToRealtimeAnnouncements(
+  onUpdate: (items: UrgentAnnouncementItem[]) => void
+): () => void {
+  let isMounted = true;
+  let isPolling = false;
+  let lastSerialized = '';
+
+  const cached = getCachedAnnouncements();
+  if (cached.length > 0) {
+    lastSerialized = JSON.stringify(cached);
+    onUpdate(cached);
+  }
+
+  const pollAnnouncements = async () => {
+    if (!isMounted || isPolling) return;
+    isPolling = true;
+    try {
+      const liveItems = await fetchLiveAnnouncementsFromGoogleSheets();
+      if (isMounted && liveItems !== null) {
+        const serialized = JSON.stringify(liveItems);
+        if (serialized !== lastSerialized) {
+          lastSerialized = serialized;
+          onUpdate(liveItems);
+        }
+      }
+    } catch {
+      // ignore transient network error
+    } finally {
+      isPolling = false;
+    }
+  };
+
+  pollAnnouncements();
+  const intervalId = window.setInterval(pollAnnouncements, 5000);
+
+  const handleFocusOrVisible = () => {
+    if (isMounted && document.visibilityState !== 'hidden') {
+      pollAnnouncements();
+    }
+  };
+
+  window.addEventListener('focus', handleFocusOrVisible);
+  document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+  return () => {
+    isMounted = false;
+    window.clearInterval(intervalId);
+    window.removeEventListener('focus', handleFocusOrVisible);
+    document.removeEventListener('visibilitychange', handleFocusOrVisible);
+  };
+}
+
+// ============================================================================
+// لوحة الشرف التلقائية للأوائل (Live Honor Roll from Google Sheets gid=1349515247)
+// ============================================================================
+
+export const DEFAULT_HONOR_ROLL_GID = '1349515247';
+const HONOR_ROLL_CACHE_KEY = 'elgazzar_live_honor_roll_v1';
+
+export interface HonorRollStudent {
+  rank: number;
+  rankLabel: string;
+  studentCode: string;
+  studentName: string;
+  grade: string;
+  group: string;
+  examRate: string;
+  homeworkRate: string;
+  attendanceRate: string;
+  overallRate: string;
+  overallNumeric: number;
+  extraFields?: Array<{ title: string; value: string }>;
+}
+
+export interface HonorRollData {
+  sheetTitle: string;
+  topLimitLabel: string;
+  minThresholdLabel: string;
+  honoredCountLabel: string;
+  students: HonorRollStudent[];
+}
+
+function cleanPercentageDisplay(raw: string): string {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed || trimmed === '-') return '';
+  const normalized = normalizeDigits(trimmed).replace(/٫/g, '.');
+  // إذا كان رقماً عشرياً بين 0 و 1 من gviz مثل "0.988" نحوله إلى نسبة مئوية
+  if (!normalized.includes('%')) {
+    const num = Number(normalized);
+    if (!Number.isNaN(num) && num > 0 && num <= 1) {
+      return `${(num * 100).toFixed(1).replace(/\.0$/, '')}%`;
+    }
+  }
+  return normalized;
+}
+
+function parseNumericPercentage(raw: string): number {
+  const cleaned = cleanPercentageDisplay(raw).replace('%', '').trim();
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : 0;
+}
+
+/**
+ * تحليل ورقة "لوحة الشرف" واستخراج جميع الطلاب الأوائل المعروضين في الشيت أياً كان عددهم
+ */
+export function parseHonorRollFromRows(rows: string[][]): HonorRollData {
+  const defaultData: HonorRollData = {
+    sheetTitle: 'لوحة الشرف للمتفوقين',
+    topLimitLabel: '',
+    minThresholdLabel: '',
+    honoredCountLabel: '',
+    students: [],
+  };
+
+  if (!rows || rows.length === 0) return defaultData;
+
+  const nonEmptyRows = rows
+    .map((r) => r.map((c) => String(c ?? '').trim()))
+    .filter((r) => r.some((c) => c !== ''));
+
+  if (nonEmptyRows.length === 0) return defaultData;
+
+  let headerRowIdx = -1;
+  let rankIdx = 0;
+  let codeIdx = 1;
+  let nameIdx = 2;
+  let gradeIdx = 3;
+  let groupIdx = 4;
+  let examIdx = 5;
+  let homeworkIdx = 6;
+  let attendanceIdx = 7;
+  let overallIdx = 8;
+
+  // البحث عن صف العناوين (المركز، كود الطالب، اسم الطالب، الصف الدراسي...)
+  for (let r = 0; r < Math.min(nonEmptyRows.length, 6); r++) {
+    const row = nonEmptyRows[r];
+    const rowNorm = row.map((c) => normalizeArabicText(c));
+
+    // استخراج بيانات الصف التعريفي العلوي إن وجد (مثل: حالة اللوحة: مفعل | عرض أفضل: 5 | الحد الأدنى: 80%)
+    if (
+      rowNorm.some(
+        (c) =>
+          c.includes('لوحه الشرف') ||
+          c.includes('حاله اللوحه') ||
+          c.includes('عرض افضل') ||
+          c.includes('الحد الادني') ||
+          c.includes('المكرمون')
+      ) &&
+      !rowNorm.some((c) => c.includes('اسم الطالب') || c.includes('كود الطالب'))
+    ) {
+      if (row[0] && normalizeArabicText(row[0]).includes('لوحه الشرف')) {
+        defaultData.sheetTitle = row[0].replace(/^🏆\s*/, '').trim();
+      }
+      for (let c = 0; c < row.length; c++) {
+        const cellNorm = rowNorm[c];
+        if (cellNorm.includes('حاله اللوحه') && row[c + 1]) {
+          if (isAnnouncementStatusDisabled(row[c + 1])) {
+            return defaultData;
+          }
+        } else if (cellNorm.includes('عرض افضل') && row[c + 1]) {
+          defaultData.topLimitLabel = normalizeDigits(row[c + 1]);
+        } else if (cellNorm.includes('الحد الادني') && row[c + 1]) {
+          defaultData.minThresholdLabel = cleanPercentageDisplay(row[c + 1]);
+        } else if (cellNorm.includes('المكرمون')) {
+          defaultData.honoredCountLabel = row[c];
+        }
+      }
+      continue;
+    }
+
+    const hasStudentNameCol = rowNorm.some(
+      (c) => c.includes('اسم الطالب') || c === 'الاسم' || c.includes('الطالب')
+    );
+    const hasGradeOrCodeCol = rowNorm.some(
+      (c) =>
+        c.includes('كود') ||
+        c.includes('الصف') ||
+        c.includes('المركز') ||
+        c.includes('المعدل')
+    );
+
+    if (hasStudentNameCol && hasGradeOrCodeCol) {
+      headerRowIdx = r;
+      rowNorm.forEach((col, idx) => {
+        if (col.includes('المركز') || col.includes('ترتيب')) rankIdx = idx;
+        else if (col.includes('كود')) codeIdx = idx;
+        else if (col.includes('اسم') || col === 'الطالب') nameIdx = idx;
+        else if (col.includes('الصف') || col.includes('المرحله')) gradeIdx = idx;
+        else if (col.includes('المجموعه') || col.includes('مجموعه') || col.includes('ميعاد'))
+          groupIdx = idx;
+        else if (col.includes('امتحان') || col.includes('اختبار')) examIdx = idx;
+        else if (col.includes('واجب') || col.includes('مواظبه')) homeworkIdx = idx;
+        else if (col.includes('حضور') || col.includes('غياب')) attendanceIdx = idx;
+        else if (col.includes('المعدل') || col.includes('العام') || col.includes('المجموع'))
+          overallIdx = idx;
+      });
+      break;
+    }
+  }
+
+  const startRow = headerRowIdx !== -1 ? headerRowIdx + 1 : 0;
+  const headerRow = headerRowIdx !== -1 ? nonEmptyRows[headerRowIdx] : [];
+  const knownIndices = new Set([
+    rankIdx,
+    codeIdx,
+    nameIdx,
+    gradeIdx,
+    groupIdx,
+    examIdx,
+    homeworkIdx,
+    attendanceIdx,
+    overallIdx,
+  ]);
+
+  const students: HonorRollStudent[] = [];
+
+  for (let i = startRow; i < nonEmptyRows.length; i++) {
+    const row = nonEmptyRows[i];
+    const rawName = (row[nameIdx] ?? '').trim();
+    const rawCode = normalizeDigits(row[codeIdx] ?? '');
+    const rawRank = normalizeDigits(row[rankIdx] ?? '');
+
+    if (!rawName) continue;
+    const nameNorm = normalizeArabicText(rawName);
+    if (
+      nameNorm === 'اسم الطالب' ||
+      nameNorm === 'الاسم' ||
+      nameNorm.includes('لوحه الشرف') ||
+      nameNorm.includes('لا يوجد')
+    ) {
+      continue;
+    }
+
+    const parsedRank = Number(rawRank.replace(/[^0-9]/g, ''));
+    const rank =
+      Number.isFinite(parsedRank) && parsedRank > 0 ? parsedRank : students.length + 1;
+
+    const rawGrade = (row[gradeIdx] ?? '').trim();
+    const cleanedGroup = cleanRecordedGroup(row[groupIdx] ?? '');
+    const examRate = cleanPercentageDisplay(row[examIdx] ?? '');
+    const homeworkRate = cleanPercentageDisplay(row[homeworkIdx] ?? '');
+    const attendanceRate = cleanPercentageDisplay(row[attendanceIdx] ?? '');
+    const overallRate = cleanPercentageDisplay(row[overallIdx] ?? '');
+    const overallNumeric = parseNumericPercentage(
+      overallRate || examRate || attendanceRate
+    );
+
+    const extraFields: Array<{ title: string; value: string }> = [];
+    for (let c = 0; c < row.length; c++) {
+      if (knownIndices.has(c)) continue;
+      const val = (row[c] ?? '').trim();
+      const title = (headerRow[c] ?? '').trim();
+      if (val && val !== '-' && title) {
+        extraFields.push({ title, value: val });
+      }
+    }
+
+    students.push({
+      rank,
+      rankLabel: rawRank || String(rank),
+      studentCode: rawCode,
+      studentName: rawName,
+      grade: rawGrade,
+      group: cleanedGroup,
+      examRate,
+      homeworkRate,
+      attendanceRate,
+      overallRate,
+      overallNumeric,
+      extraFields: extraFields.length > 0 ? extraFields : undefined,
+    });
+  }
+
+  defaultData.students = students;
+  return defaultData;
+}
+
+let cachedHonorRollGid: string = DEFAULT_HONOR_ROLL_GID;
+let lastHonorRollTabCheck = 0;
+
+async function resolveHonorRollTabGid(): Promise<string> {
+  const now = Date.now();
+  if (now - lastHonorRollTabCheck > 60000) {
+    lastHonorRollTabCheck = now;
+    try {
+      const tabs = await discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID);
+      const found = tabs.find((t) => {
+        const norm = normalizeArabicText(t.name);
+        return (
+          norm.includes('شرف') ||
+          norm.includes('اوائل') ||
+          norm.includes('تكريم') ||
+          norm.includes('متفوق')
+        );
+      });
+      if (found?.gid) {
+        cachedHonorRollGid = found.gid;
+      }
+    } catch {
+      // keep cachedHonorRollGid
+    }
+  }
+  return cachedHonorRollGid;
+}
+
+export function getCachedHonorRoll(): HonorRollData | null {
+  try {
+    const raw = localStorage.getItem(HONOR_ROLL_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.students)) {
+      return parsed as HonorRollData;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedHonorRoll(data: HonorRollData): void {
+  try {
+    localStorage.setItem(HONOR_ROLL_CACHE_KEY, JSON.stringify(data));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+/**
+ * جلب بيانات لوحة الشرف مباشرة من شيت جوجل (`لوحة الشرف` gid=1349515247)
+ */
+export async function fetchLiveHonorRollFromGoogleSheets(): Promise<HonorRollData | null> {
+  const spreadsheetId = DEFAULT_SPREADSHEET_ID;
+  const gid = await resolveHonorRollTabGid();
+  const timestamp = Date.now();
+
+  // 1. القراءة المباشرة عبر CSV الخام لضمان قراءة جميع الأعمدة والنسب المئوية بدقة 100%
+  try {
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}&_t=${timestamp}`;
+    const res = await fetch(csvUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const csvText = await res.text();
+      if (!csvText.trim().startsWith('<!DOCTYPE html>')) {
+        const rows = parseCsvToRows(csvText);
+        const parsed = parseHonorRollFromRows(rows);
+        saveCachedHonorRoll(parsed);
+        return parsed;
+      }
+    }
+  } catch {
+    // المتابعة إلى gviz
+  }
+
+  // 2. القراءة عبر Google Visualization endpoint كبديل
+  try {
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=0&gid=${gid}&_t=${timestamp}`;
+    const res = await fetch(gvizUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const text = await res.text();
+      const rows = parseGvizResponse(text);
+      const parsed = parseHonorRollFromRows(rows);
+      saveCachedHonorRoll(parsed);
+      return parsed;
+    }
+  } catch {
+    // ignore transient network errors
+  }
+
+  return null;
+}
+
+/**
+ * اشتراك لحظي مستمر (Real-time Subscription) للوحة الشرف
+ * يحدث قائمة الأوائل والدرجات والأوسمة تلقائياً كل 6 ثوانٍ وعند التركيز على الصفحة
+ */
+export function subscribeToRealtimeHonorRoll(
+  onUpdate: (data: HonorRollData) => void
+): () => void {
+  let isMounted = true;
+  let isPolling = false;
+  let lastSerialized = '';
+
+  const cached = getCachedHonorRoll();
+  if (cached && cached.students.length > 0) {
+    lastSerialized = JSON.stringify(cached);
+    onUpdate(cached);
+  }
+
+  const pollHonorRoll = async () => {
+    if (!isMounted || isPolling) return;
+    isPolling = true;
+    try {
+      const liveData = await fetchLiveHonorRollFromGoogleSheets();
+      if (isMounted && liveData !== null) {
+        const serialized = JSON.stringify(liveData);
+        if (serialized !== lastSerialized) {
+          lastSerialized = serialized;
+          onUpdate(liveData);
+        }
+      }
+    } catch {
+      // ignore transient network error
+    } finally {
+      isPolling = false;
+    }
+  };
+
+  pollHonorRoll();
+  const intervalId = window.setInterval(pollHonorRoll, 6000);
+
+  const handleFocusOrVisible = () => {
+    if (isMounted && document.visibilityState !== 'hidden') {
+      pollHonorRoll();
+    }
+  };
+
+  window.addEventListener('focus', handleFocusOrVisible);
+  document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+  return () => {
+    isMounted = false;
+    window.clearInterval(intervalId);
+    window.removeEventListener('focus', handleFocusOrVisible);
+    document.removeEventListener('visibilitychange', handleFocusOrVisible);
+  };
+}
+
+// ============================================================================
+// سجل الحضور والغياب الشهري للطلاب (Live Attendance: أرشيف الحضور + قاعدة بيانات الحضور)
+// ============================================================================
+
+export const DEFAULT_ATTENDANCE_GID = '213909958';
+const ATTENDANCE_HISTORY_CACHE_KEY = 'elgazzar_student_attendance_history_v2';
+
+interface CachedMonthSheetEntry {
+  dates: string[];
+  statuses: Array<AttendanceSessionStatus | null>;
+  customDateStatuses?: Record<string, AttendanceSessionStatus>;
+  lastUpdated?: string;
+  updatedAt: number;
+}
+
+function loadCachedStudentAttendanceHistory(
+  studentKey: string
+): Record<number, CachedMonthSheetEntry> {
+  try {
+    const raw = localStorage.getItem(`${ATTENDANCE_HISTORY_CACHE_KEY}_${studentKey}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCachedStudentAttendanceHistory(
+  studentKey: string,
+  history: Record<number, CachedMonthSheetEntry>
+): void {
+  try {
+    localStorage.setItem(
+      `${ATTENDANCE_HISTORY_CACHE_KEY}_${studentKey}`,
+      JSON.stringify(history)
+    );
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+let cachedAttendanceGid: string = DEFAULT_ATTENDANCE_GID;
+let lastAttendanceTabCheck = 0;
+
+async function resolveAttendanceTabGid(): Promise<string> {
+  const now = Date.now();
+  if (now - lastAttendanceTabCheck > 60000) {
+    lastAttendanceTabCheck = now;
+    try {
+      const tabs = await discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID);
+      const found = tabs.find((t) => {
+        const norm = normalizeArabicText(t.name);
+        return (norm.includes('حضور') || norm.includes('غياب')) && !norm.includes('قاعده');
+      });
+      if (found?.gid) {
+        cachedAttendanceGid = found.gid;
+      }
+    } catch {
+      // keep cachedAttendanceGid
+    }
+  }
+  return cachedAttendanceGid;
+}
+
+async function fetchRawAttendanceSheetRows(): Promise<string[][]> {
+  const spreadsheetId = DEFAULT_SPREADSHEET_ID;
+  const gid = await resolveAttendanceTabGid();
+  const timestamp = Date.now();
+
+  try {
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}&_t=${timestamp}`;
+    const res = await fetch(csvUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const csvText = await res.text();
+      if (!csvText.trim().startsWith('<!DOCTYPE html>')) {
+        const rows = parseCsvToRows(csvText);
+        if (rows.length > 0) return rows;
+      }
+    }
+  } catch {
+    // fallback to gviz
+  }
+
+  try {
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=0&gid=${gid}&_t=${timestamp}`;
+    const res = await fetch(gvizUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const text = await res.text();
+      const rows = parseGvizResponse(text);
+      if (rows.length > 0) return rows;
+    }
+  } catch {
+    // ignore transient errors
+  }
+
+  return [];
+}
+
+async function fetchAttendanceDatabaseEntries(): Promise<AttendanceDatabaseEntry[]> {
+  const spreadsheetId = DEFAULT_SPREADSHEET_ID;
+  const timestamp = Date.now();
+
+  try {
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=1&sheet=${encodeURIComponent(
+      'قاعدة بيانات الحضور'
+    )}&_t=${timestamp}`;
+    const res = await fetch(gvizUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const text = await res.text();
+      const rows = parseGvizResponse(text);
+      return parseAttendanceDatabaseRows(rows);
+    }
+  } catch {
+    // ignore transient error
+  }
+
+  return [];
+}
+
+/**
+ * استخراج سجل الحضور والغياب الكامل للطالب من "أرشيف الحضور" و"قاعدة بيانات الحضور" لجميع الصفوف
+ * مع حساب سلسلة الالتزام، وإجمالي الحضور التراكمي، وتاريخ آخر تحديث
+ */
+export async function fetchLiveStudentAttendance(
+  student: StudentRecord
+): Promise<StudentAttendanceData> {
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate()
+  ).padStart(2, '0')}`;
+  const currentMonthNumber = now.getMonth() + 1;
+
+  const studentKey = getStudentFirestoreDocId(student.grade, student.id);
+  const cachedHistory = loadCachedStudentAttendanceHistory(studentKey);
+
+  let matchedGroupInAttendanceSheet = '';
+  let sheetTodayIso = todayIso;
+  let latestDbLastUpdated = '';
+
+  const [archiveRows, databaseEntries] = await Promise.all([
+    fetchRawAttendanceSheetRows(),
+    fetchAttendanceDatabaseEntries(),
+  ]);
+
+  // 1. دمج سجلات "قاعدة بيانات الحضور" (تغطي جميع الصفوف والشهور المسجلة)
+  const targetGradeNorm = normalizeAttendanceArabicText(student.grade);
+  const matchingDbEntries = databaseEntries.filter((entry) => {
+    if (!isMatchingAttendanceStudentCode(entry.studentCode, student.id)) return false;
+    if (!entry.grade || !targetGradeNorm) return true;
+    return normalizeAttendanceArabicText(entry.grade) === targetGradeNorm;
+  });
+
+  for (const dbEntry of matchingDbEntries) {
+    const existing = cachedHistory[dbEntry.monthNumber];
+    cachedHistory[dbEntry.monthNumber] = {
+      dates: existing?.dates || [],
+      statuses: dbEntry.statuses,
+      customDateStatuses: existing?.customDateStatuses,
+      lastUpdated: dbEntry.lastUpdated || existing?.lastUpdated || '',
+      updatedAt: Date.now(),
+    };
+    if (dbEntry.lastUpdated) {
+      latestDbLastUpdated = dbEntry.lastUpdated;
+    }
+  }
+
+  // 2. قراءة أحدث حالة وتواريخ حصص من تبويب "أرشيف الحضور" (gid=213909958)
+  if (archiveRows.length > 0) {
+    const parsedArchive = parseAttendanceArchiveRows(archiveRows, now);
+    sheetTodayIso = parsedArchive.sheetTodayIso || sheetTodayIso;
+
+    const effectiveSheetMonth =
+      parsedArchive.activeSheetMonth ||
+      (parsedArchive.parsedIsoDates[0]
+        ? Number(parsedArchive.parsedIsoDates[0].slice(5, 7))
+        : currentMonthNumber);
+
+    const matchedArchiveRow = parsedArchive.rows.find((row) =>
+      isMatchingAttendanceStudentCode(row.studentCode, student.id)
+    );
+
+    if (matchedArchiveRow) {
+      if (matchedArchiveRow.group) {
+        matchedGroupInAttendanceSheet = matchedArchiveRow.group;
+      }
+
+      const hasAnyExplicitMark = matchedArchiveRow.statuses.some(
+        (st) => st !== null && st !== 'upcoming'
+      );
+
+      if (hasAnyExplicitMark || parsedArchive.parsedIsoDates.length > 0) {
+        const existing = cachedHistory[effectiveSheetMonth];
+        cachedHistory[effectiveSheetMonth] = {
+          dates: parsedArchive.parsedIsoDates,
+          statuses: matchedArchiveRow.statuses,
+          customDateStatuses: existing?.customDateStatuses,
+          lastUpdated: existing?.lastUpdated || '',
+          updatedAt: Date.now(),
+        };
+      }
+    } else if (parsedArchive.parsedIsoDates.length > 0) {
+      // حتى لو كان جدول الأرشيف مفتوحاً على صف آخر، نستفيد من تواريخ الحصص إن كانت نفس الشهر
+      const existing = cachedHistory[effectiveSheetMonth];
+      if (existing && (!existing.dates || existing.dates.length === 0)) {
+        existing.dates = parsedArchive.parsedIsoDates;
+      }
+    }
+  }
+
+  // 3. فحص خانات شيت الصف الدراسي نفسه لأي تواريخ حضور أو غياب مسجلة مباشرة
+  let gradeSheetAttendancePct: number | null = null;
+  for (const scoreItem of student.scores || []) {
+    const rawValStr = String(scoreItem.value ?? '');
+    const titleNorm = normalizeArabicText(scoreItem.title);
+
+    if (titleNorm.includes('نسبه الحضور') || titleNorm === 'الحضور') {
+      const pctNum = parseNumericPercentage(rawValStr);
+      if (pctNum > 0 && pctNum <= 100) {
+        gradeSheetAttendancePct = pctNum;
+      }
+    }
+
+    const combinedText = `${scoreItem.title} ${rawValStr}`;
+    const customIso = parseFlexibleAttendanceDateToIso(
+      combinedText,
+      currentMonthNumber,
+      now.getFullYear()
+    );
+    const customStatus =
+      parseAttendanceCellStatus(rawValStr) || parseAttendanceCellStatus(scoreItem.title);
+    if (customIso && customStatus && customStatus !== 'upcoming') {
+      const mNum = Number(customIso.slice(5, 7));
+      if (!cachedHistory[mNum]) {
+        cachedHistory[mNum] = { dates: [], statuses: [], updatedAt: Date.now() };
+      }
+      if (!cachedHistory[mNum].customDateStatuses) {
+        cachedHistory[mNum].customDateStatuses = {};
+      }
+      cachedHistory[mNum].customDateStatuses![customIso] = customStatus;
+    }
+  }
+
+  saveCachedStudentAttendanceHistory(studentKey, cachedHistory);
+
+  // 4. تحديد أيام حصص المجموعة الأسبوعية للطالب
+  const effectiveGroupForSchedule =
+    matchedGroupInAttendanceSheet || student.rawGroup || student.group || '';
+  const weeklySchedule = resolveStudentWeeklySchedule(student.grade, effectiveGroupForSchedule);
+
+  // 5. بناء سجل الحضور الشهري المنظم لكل شهر من شهور السنة الدراسية
+  const monthsMap: Record<number, MonthlyAttendanceRecord> = {};
+
+  for (const mNum of ACADEMIC_MONTHS_ORDER) {
+    const year = getAcademicYearForMonth(mNum, sheetTodayIso);
+    const cachedMonth = cachedHistory[mNum];
+
+    const scheduledDates =
+      cachedMonth &&
+      cachedMonth.dates.length === 8 &&
+      Number(cachedMonth.dates[0].slice(5, 7)) === mNum
+        ? cachedMonth.dates
+        : buildMonthScheduledDates(year, mNum, weeklySchedule.daysOfWeek);
+
+    const sessions: AttendanceSessionItem[] = [];
+    const customDateMap = { ...(cachedMonth?.customDateStatuses || {}) };
+
+    const pastIndices: number[] = [];
+    scheduledDates.forEach((dIso, idx) => {
+      if (dIso <= sheetTodayIso) {
+        pastIndices.push(idx);
+      }
+    });
+
+    const hasExplicitSheetStatuses = Boolean(
+      cachedMonth?.statuses?.some((st) => st !== null && st !== 'upcoming')
+    );
+
+    let impliedAbsentCountForCurrentMonth = 0;
+    if (
+      !hasExplicitSheetStatuses &&
+      mNum === currentMonthNumber &&
+      gradeSheetAttendancePct !== null &&
+      gradeSheetAttendancePct < 100 &&
+      pastIndices.length > 0
+    ) {
+      impliedAbsentCountForCurrentMonth = Math.max(
+        1,
+        Math.round(pastIndices.length * ((100 - gradeSheetAttendancePct) / 100))
+      );
+    }
+
+    scheduledDates.forEach((isoDate, idx) => {
+      const explicitStatus =
+        customDateMap[isoDate] ||
+        (cachedMonth?.statuses?.[idx] && cachedMonth.statuses[idx] !== 'upcoming'
+          ? cachedMonth.statuses[idx]
+          : null);
+
+      delete customDateMap[isoDate];
+
+      let finalStatus: AttendanceSessionStatus;
+      let isExplicit = false;
+
+      if (explicitStatus) {
+        finalStatus = explicitStatus;
+        isExplicit = true;
+      } else if (isoDate > sheetTodayIso) {
+        finalStatus = 'upcoming';
+      } else if (impliedAbsentCountForCurrentMonth > 0) {
+        if (idx >= pastIndices.length - impliedAbsentCountForCurrentMonth) {
+          finalStatus = 'absent';
+        } else {
+          finalStatus = 'present';
+        }
+      } else if (hasExplicitSheetStatuses) {
+        finalStatus = 'present';
+      } else {
+        // شهر غير مسجل له بيانات في الشيت: لا ننشئ حضور افتراضي غير مسجل
+        finalStatus = 'upcoming';
+      }
+
+      const { dayNameAr, shortDate } = formatIsoDateDetails(isoDate);
+      const { statusLabelAr: rawStatusLabel, fullSentenceAr } = buildAttendanceStatusPresentation(
+        finalStatus,
+        dayNameAr,
+        shortDate
+      );
+      const statusLabelAr =
+        finalStatus === 'upcoming' && isoDate <= sheetTodayIso && !hasExplicitSheetStatuses
+          ? 'غير مسجل بعد'
+          : rawStatusLabel;
+
+      sessions.push({
+        sessionIndex: idx + 1,
+        sessionTitle: `الحصة ${idx + 1}`,
+        isoDate,
+        dayNameAr,
+        shortDate,
+        status: finalStatus,
+        statusLabelAr,
+        fullSentenceAr,
+        isExplicitFromSheet: isExplicit,
+      });
+    });
+
+    for (const [extraIso, extraStatus] of Object.entries(customDateMap)) {
+      const { dayNameAr, shortDate } = formatIsoDateDetails(extraIso);
+      const { statusLabelAr, fullSentenceAr } = buildAttendanceStatusPresentation(
+        extraStatus,
+        dayNameAr,
+        shortDate
+      );
+      sessions.push({
+        sessionIndex: sessions.length + 1,
+        sessionTitle: `حصة إضافية`,
+        isoDate: extraIso,
+        dayNameAr,
+        shortDate,
+        status: extraStatus,
+        statusLabelAr,
+        fullSentenceAr,
+        isExplicitFromSheet: true,
+      });
+    }
+
+    sessions.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+    sessions.forEach((s, idx) => {
+      s.sessionIndex = idx + 1;
+      if (s.sessionTitle.startsWith('الحصة')) {
+        s.sessionTitle = `الحصة ${idx + 1}`;
+      }
+    });
+
+    const presentCount = sessions.filter((s) => s.status === 'present').length;
+    const absentCount = sessions.filter((s) => s.status === 'absent').length;
+    const lateCount = sessions.filter((s) => s.status === 'late').length;
+    const excusedCount = sessions.filter((s) => s.status === 'excused').length;
+    const upcomingCount = sessions.filter((s) => s.status === 'upcoming').length;
+    const recordedCount = presentCount + absentCount + lateCount + excusedCount;
+
+    const attendancePercentage =
+      recordedCount === 0
+        ? 100
+        : Math.round(((presentCount + excusedCount + lateCount * 0.75) / recordedCount) * 100);
+
+    const commitmentBadge =
+      recordedCount === 0
+        ? 'لم تبدأ حصص الشهر بعد'
+        : attendancePercentage >= 95
+          ? 'التزام مثالي بالحضور'
+          : attendancePercentage >= 85
+            ? 'حضور منتظم ومتميز'
+            : attendancePercentage >= 75
+              ? 'حضور مقبول'
+              : 'يحتاج الانتظام في الحضور';
+
+    const monthNameAr = ARABIC_MONTH_NAMES[mNum] || `شهر ${mNum}`;
+    monthsMap[mNum] = {
+      monthNumber: mNum,
+      monthNameAr,
+      monthDisplayTitle: `شهر ${mNum} (${monthNameAr})`,
+      year,
+      sessions,
+      presentCount,
+      absentCount,
+      lateCount,
+      excusedCount,
+      upcomingCount,
+      recordedCount,
+      attendancePercentage,
+      commitmentBadge,
+      hasSheetRecords: hasExplicitSheetStatuses,
+      lastUpdated: cachedMonth?.lastUpdated || '',
+    };
+  }
+
+  const insights = computeAttendanceTermInsights(monthsMap);
+  const activeMonthRef = ACADEMIC_MONTHS_ORDER.includes(currentMonthNumber)
+    ? currentMonthNumber
+    : 11;
+  const normGroupText = normalizeAttendanceArabicText(effectiveGroupForSchedule);
+  const groupHasExplicitDays =
+    normGroupText.includes('احد') ||
+    normGroupText.includes('اربعاء') ||
+    normGroupText.includes('اثنين') ||
+    normGroupText.includes('خميس') ||
+    normGroupText.includes('سبت') ||
+    normGroupText.includes('ثلاثاء');
+
+  const derivedFromSheetDates = groupHasExplicitDays
+    ? null
+    : deriveScheduleDaysLabelFromIsoDates(
+        (monthsMap[activeMonthRef]?.sessions || []).map((s) => s.isoDate)
+      );
+
+  return {
+    studentId: student.id,
+    studentName: student.name,
+    grade: student.grade,
+    scheduleDaysLabel: derivedFromSheetDates || weeklySchedule.label,
+    currentMonthNumber: activeMonthRef,
+    availableMonths: ACADEMIC_MONTHS_ORDER,
+    months: monthsMap,
+    consecutivePresentStreak: insights.consecutivePresentStreak,
+    totalRecordedPresent: insights.totalRecordedPresent,
+    totalRecordedAbsent: insights.totalRecordedAbsent,
+    totalRecordedSessions: insights.totalRecordedSessions,
+    overallTermAttendancePercentage: insights.overallTermAttendancePercentage,
+    lastUpdatedDate: latestDbLastUpdated,
+  };
+}
+
+/**
+ * اشتراك لحظي (Real-time Subscription) لسجل حضور وغياب الطالب من الشيت
+ */
+export function subscribeToRealtimeStudentAttendance(
+  student: StudentRecord,
+  onUpdate: (data: StudentAttendanceData) => void
+): () => void {
+  let isActive = true;
+  let isPolling = false;
+  let lastSerialized = '';
+
+  const pollNow = async () => {
+    if (!isActive || isPolling) return;
+    isPolling = true;
+    try {
+      const liveData = await fetchLiveStudentAttendance(student);
+      if (isActive && liveData) {
+        const serialized = JSON.stringify(liveData);
+        if (serialized !== lastSerialized) {
+          lastSerialized = serialized;
+          onUpdate(liveData);
+        }
+      }
+    } catch {
+      // ignore transient network errors
+    } finally {
+      isPolling = false;
+    }
+  };
+
+  pollNow();
+  const intervalId = window.setInterval(pollNow, 6000);
+  const handleFocus = () => {
+    if (isActive && document.visibilityState !== 'hidden') {
+      pollNow();
+    }
+  };
+  window.addEventListener('focus', handleFocus);
+  document.addEventListener('visibilitychange', handleFocus);
+
+  return () => {
+    isActive = false;
+    window.clearInterval(intervalId);
+    window.removeEventListener('focus', handleFocus);
+    document.removeEventListener('visibilitychange', handleFocus);
+  };
+}
+
+// ============================================================================
+// حالة الدفع والمصروفات الشهرية (Live Payment Status from gid=99901 & قاعدة بيانات الدفع)
+// ============================================================================
+
+export const DEFAULT_PAYMENT_GID = '99901';
+const PAYMENT_CACHE_KEY_PREFIX = 'elgazzar_student_payment_v1_';
+
+let cachedPaymentDashboardGid: string = DEFAULT_PAYMENT_GID;
+let lastPaymentTabDiscovery = 0;
+
+async function resolvePaymentDashboardGid(): Promise<string> {
+  const now = Date.now();
+  if (now - lastPaymentTabDiscovery > 60000) {
+    lastPaymentTabDiscovery = now;
+    try {
+      const tabs = await discoverSpreadsheetTabs(DEFAULT_SPREADSHEET_ID);
+      const found = tabs.find((t) => {
+        const norm = normalizeArabicText(t.name);
+        return (
+          (norm.includes('دفع') || norm.includes('مصاريف') || norm.includes('سداد')) &&
+          !norm.includes('قاعده')
+        );
+      });
+      if (found?.gid) {
+        cachedPaymentDashboardGid = found.gid;
+      }
+    } catch {
+      // keep cachedPaymentDashboardGid
+    }
+  }
+  return cachedPaymentDashboardGid;
+}
+
+function loadCachedStudentPayment(studentKey: string): StudentPaymentSummary | null {
+  try {
+    const raw = localStorage.getItem(`${PAYMENT_CACHE_KEY_PREFIX}${studentKey}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.currentMonth && parsed.previousMonth
+      ? (parsed as StudentPaymentSummary)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedStudentPayment(
+  studentKey: string,
+  summary: StudentPaymentSummary | null
+): void {
+  try {
+    if (summary) {
+      localStorage.setItem(`${PAYMENT_CACHE_KEY_PREFIX}${studentKey}`, JSON.stringify(summary));
+    }
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+async function fetchPaymentDashboardRecords(): Promise<StudentPaymentRecord[]> {
+  const spreadsheetId = DEFAULT_SPREADSHEET_ID;
+  const gid = await resolvePaymentDashboardGid();
+  const timestamp = Date.now();
+
+  try {
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}&_t=${timestamp}`;
+    const res = await fetch(csvUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const csvText = await res.text();
+      if (!csvText.trim().startsWith('<!DOCTYPE html>')) {
+        const rows = parseCsvToRows(csvText);
+        return parsePaymentDashboardRows(rows);
+      }
+    }
+  } catch {
+    // fallback to gviz
+  }
+
+  try {
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=0&gid=${gid}&_t=${timestamp}`;
+    const res = await fetch(gvizUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const text = await res.text();
+      const rows = parseGvizResponse(text);
+      return parsePaymentDashboardRows(rows);
+    }
+  } catch {
+    // ignore transient error
+  }
+
+  return [];
+}
+
+async function fetchPaymentDatabaseRecords(): Promise<StudentPaymentRecord[]> {
+  const spreadsheetId = DEFAULT_SPREADSHEET_ID;
+  const timestamp = Date.now();
+
+  try {
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=1&sheet=${encodeURIComponent(
+      'قاعدة بيانات الدفع'
+    )}&_t=${timestamp}`;
+    const res = await fetch(gvizUrl, { cache: 'no-store' });
+    if (res.ok) {
+      const text = await res.text();
+      const rows = parseGvizResponse(text);
+      return parsePaymentDatabaseRows(rows);
+    }
+  } catch {
+    // ignore transient error
+  }
+
+  return [];
+}
+
+/**
+ * جلب حالة الدفع الحية للطالب من تبويب "حالة الدفع" و "قاعدة بيانات الدفع"
+ * وحساب الشهر الحالي والشهر السابق تلقائياً حسب التقويم العالمي
+ */
+export async function fetchLiveStudentPayment(
+  gradeName: string,
+  studentCode: string
+): Promise<StudentPaymentSummary | null> {
+  const studentKey = getStudentFirestoreDocId(gradeName, studentCode);
+
+  const [dashboardRecords, databaseRecords] = await Promise.all([
+    fetchPaymentDashboardRecords(),
+    fetchPaymentDatabaseRecords(),
+  ]);
+
+  const combinedRecords = [...dashboardRecords, ...databaseRecords];
+  if (combinedRecords.length === 0) {
+    return loadCachedStudentPayment(studentKey);
+  }
+
+  const summary = buildStudentPaymentSummary(
+    combinedRecords,
+    gradeName,
+    studentCode,
+    new Date()
+  );
+
+  if (summary) {
+    saveCachedStudentPayment(studentKey, summary);
+  }
+  return summary;
+}
+
+/**
+ * اشتراك لحظي (Real-time Subscription) لحالة الدفع الخاصة بالطالب
+ * يتحدث تلقائياً كل 5 ثوانٍ وعند التركيز على الصفحة ليعكس أي تغيير في الشيت فوراً
+ */
+export function subscribeToRealtimeStudentPayment(
+  gradeName: string,
+  studentCode: string,
+  onUpdate: (summary: StudentPaymentSummary | null, isLoaded: boolean) => void
+): () => void {
+  let isActive = true;
+  let isPolling = false;
+  let lastSerialized = '';
+
+  const studentKey = getStudentFirestoreDocId(gradeName, studentCode);
+  const rawCached = loadCachedStudentPayment(studentKey);
+  const cached = rawCached
+    ? applyCalendarDeadlineToPaymentSummary(rawCached, new Date())
+    : null;
+  if (cached) {
+    lastSerialized = JSON.stringify(cached);
+    onUpdate(cached, true);
+  }
+
+  const pollNow = async () => {
+    if (!isActive || isPolling) return;
+    isPolling = true;
+    try {
+      const liveSummary = await fetchLiveStudentPayment(gradeName, studentCode);
+      if (!isActive) return;
+      const evaluated = liveSummary
+        ? applyCalendarDeadlineToPaymentSummary(liveSummary, new Date())
+        : null;
+      const serialized = JSON.stringify(evaluated);
+      if (serialized !== lastSerialized || !cached) {
+        lastSerialized = serialized;
+        onUpdate(evaluated, true);
+      }
+    } catch {
+      if (isActive) {
+        const fallback = cached
+          ? applyCalendarDeadlineToPaymentSummary(cached, new Date())
+          : null;
+        onUpdate(fallback, true);
+      }
+    } finally {
+      isPolling = false;
+    }
+  };
+
+  pollNow();
+  const intervalId = window.setInterval(pollNow, 5000);
+  const handleFocus = () => {
+    if (isActive && document.visibilityState !== 'hidden') {
+      pollNow();
+    }
+  };
+  window.addEventListener('focus', handleFocus);
+  document.addEventListener('visibilitychange', handleFocus);
+
+  return () => {
+    isActive = false;
+    window.clearInterval(intervalId);
+    window.removeEventListener('focus', handleFocus);
+    document.removeEventListener('visibilitychange', handleFocus);
+  };
+}
+
+
